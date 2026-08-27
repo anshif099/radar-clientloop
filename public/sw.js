@@ -1,4 +1,4 @@
-const CACHE_VERSION = "clientloop-shell-v1";
+const CACHE_VERSION = "clientloop-shell-v2";
 const SAFE_SHELL_ASSETS = [
   "/offline",
   "/brand/app-icon.svg",

@@ -3,17 +3,39 @@ services:
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: clientloop
-      POSTGRES_USER: clientloop
-      POSTGRES_PASSWORD: clientloop
+      POSTGRES_USER: clientloop_admin
+      POSTGRES_PASSWORD: clientloop-admin-local
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clientloop -d clientloop"]
+      test: ["CMD-SHELL", "pg_isready -U clientloop_admin -d clientloop"]
       interval: 5s
       timeout: 5s
       retries: 10
     volumes:
       - clientloop_postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init-app-role.sql:/docker-entrypoint-initdb.d/10-init-app-role.sql:ro
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: clientloop
+      MINIO_ROOT_PASSWORD: clientloop-local-storage
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - clientloop_minio:/data
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 clientloop clientloop-local-storage; do sleep 1; done;
+      mc mb --ignore-existing local/clientloop-private"
 
 volumes:
   clientloop_postgres:
+  clientloop_minio:

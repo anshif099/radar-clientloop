@@ -1,32 +1,64 @@
 # Radar ClientLoop
 
-ClientLoop is Rainhopes' mobile-first client review, approval, revision, and publishing portal. The current milestone establishes the production application shell, installable PWA behavior, and PostgreSQL multi-tenant data foundation.
+ClientLoop is Rainhopes' mobile-first, installable poster review portal. It now uses real authenticated accounts and persistent tenant-scoped data; the application does not seed or render demonstration companies or posters.
 
-## Stack
+## Database decision
 
-- Next.js 16, React 19, and TypeScript.
-- PostgreSQL as the application source of truth.
-- Drizzle ORM types with explicit reviewed SQL migrations.
-- Inter Variable plus Noto Sans Malayalam, self-hosted by the application.
-- Vitest for domain tests and Playwright for responsive browser journeys.
+PostgreSQL is the system of record. Firebase Realtime Database is not required and is not used.
 
-Firebase Realtime Database is not used. Firebase Cloud Messaging may be evaluated later for push notifications, but PostgreSQL remains authoritative.
+PostgreSQL fits the approval workflow because companies, users, memberships, posters, versions, reviews, files, and immutable audit events are relational. Row-level security (RLS) also provides a database-enforced tenant boundary. Poster files live in private S3-compatible object storage; their metadata and permissions remain in PostgreSQL.
 
-## Local development
+## Implemented access model
 
-Requirements: Node.js 20.9 or newer, npm, and PostgreSQL 18. Docker Compose is included as the simplest local PostgreSQL option.
+- Super Admin accounts have the Better Auth role `admin` and can create companies and publish posters.
+- Creating a company creates its tenant, private workspace, company user, membership, and login credentials in one controlled workflow.
+- Company accounts resolve to exactly one active company before any application data is queried.
+- Every company query runs through `withAgency()`, which sets a transaction-local tenant ID used by PostgreSQL RLS.
+- Private poster images are streamed through an authenticated endpoint. Object-storage keys are never exposed to the browser.
+- Public registration is disabled. Super Admin creation is an explicit environment-backed bootstrap command.
 
-```bash
+## Local setup
+
+Requirements: Node.js 20.9 or newer, npm, Docker Desktop (or your own PostgreSQL and S3-compatible services).
+
+1. Install packages and create the local environment file.
+
+```powershell
 npm install
+Copy-Item .env.example .env.local
+```
+
+2. Edit `.env.local` before bootstrapping:
+
+- Set `BETTER_AUTH_SECRET` to at least 32 random characters.
+- Set `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_NAME`, and a strong `SUPER_ADMIN_PASSWORD` of at least 12 characters.
+- Keep the included S3 values for the local MinIO service, or replace them with private production object-storage credentials.
+
+3. Start PostgreSQL and MinIO, migrate the database, and create the Super Admin.
+
+```powershell
 docker compose up -d
-copy .env.example .env.local
 npm run db:migrate
+npm run auth:bootstrap
 npm run dev
 ```
 
-Open `http://localhost:3000`. The health endpoint is available at `http://localhost:3000/api/v1/health`.
+4. Open `http://localhost:3000/login` and sign in with `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` from `.env.local`.
 
-The current review feed uses local demonstration data while the authenticated API/repository layer is built. Review decisions made in this UI milestone are intentionally not persisted yet.
+The bootstrap command is idempotent: if that Super Admin already exists, it does not create another. Credentials are not hardcoded into the client bundle or committed source. Passwords are hashed by Better Auth before storage.
+
+`SUPER_ADMIN_PASSWORD` is needed only by the bootstrap command. After a successful production bootstrap, remove that plaintext value from the long-running application environment and retain the password only in an approved password manager.
+
+## Super Admin workflow
+
+After login:
+
+1. Use **Add company** to enter the company name, login email, and initial password.
+2. Securely send those credentials to that company.
+3. Use **Add poster**, select the company, add poster details, and upload a JPG, PNG, WebP, or GIF up to 20 MB.
+4. The company signs in at `/login` and sees only posters belonging to its tenant.
+
+Company review actions—Approve, Request changes, and Reject—are persisted against the current poster version with an audit event and notification outbox event.
 
 ## Commands
 
@@ -36,20 +68,20 @@ npm run build        # optimized production build
 npm run lint         # source linting
 npm run typecheck    # TypeScript verification
 npm run test         # domain unit tests
-npm run test:e2e     # mobile and desktop browser journeys
-npm run db:validate  # validate foundation migration in an embedded PostgreSQL engine
+npm run test:e2e     # mobile and desktop browser tests
+npm run db:validate  # migrations plus negative cross-tenant RLS test
 npm run db:migrate   # apply SQL migrations to DATABASE_URL
-npm run pwa:assets   # regenerate install icons from the ClientLoop SVG
+npm run auth:bootstrap # create the environment-configured Super Admin
+npm run pwa:assets   # regenerate PWA icons
 ```
 
-## PWA behavior
+## Production notes
 
-The production application registers `/sw.js`. It caches only versioned application-shell assets, install icons, and the generic offline page. API responses, client media, feedback, signed URLs, and token-bearing routes are explicitly excluded.
+- Use managed PostgreSQL and a private S3-compatible bucket with encryption and backups.
+- The application database role must be `NOSUPERUSER` and must not have `BYPASSRLS`; PostgreSQL superusers bypass tenant policies. The local Compose initialization creates the correct non-superuser `clientloop` role.
+- Use HTTPS, a unique production `BETTER_AUTH_SECRET`, and production-only credentials.
+- Do not reuse the local MinIO credentials outside local development.
+- Run migrations and `auth:bootstrap` as controlled deployment jobs, not on every application startup.
+- The service worker does not cache API responses or private company media.
 
-Install prompts require HTTPS in production. The normal responsive website remains fully functional in browsers that do not support PWA installation.
-
-## Database isolation
-
-The initial migration creates 15 foundation tables and 14 row-level security policies. Application queries must run inside `withAgency()`, which sets a transaction-local tenant context. Composite foreign keys prevent records from referencing resources in another agency.
-
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the complete delivery roadmap.
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the broader phased roadmap.

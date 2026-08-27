@@ -13,7 +13,7 @@ export function GET(request: NextRequest) {
       name,
       short_name: isRainhopes ? "RH Review" : "ClientLoop",
       description: "Review creative work, respond clearly, and keep every version together.",
-      start_url: "/?source=pwa",
+      start_url: "/app?source=pwa",
       scope: "/",
       display: "standalone",
       display_override: ["window-controls-overlay", "standalone"],
@@ -51,7 +51,7 @@ export function GET(request: NextRequest) {
         {
           name: "Pending reviews",
           short_name: "Pending",
-          url: "/?filter=pending&source=shortcut",
+          url: "/company?filter=pending&source=shortcut",
           icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
         },
       ],

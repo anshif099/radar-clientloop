@@ -1,5 +1,5 @@
-import { ReviewApp } from "@/components/review-app";
+import { redirect } from "next/navigation";
 
 export default function HomePage() {
-  return <ReviewApp />;
+  redirect("/login");
 }

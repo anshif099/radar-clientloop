@@ -11,8 +11,12 @@ Implementation checkpoint — 27 August 2026:
 - Completed the Instagram-inspired mobile-first review-feed vertical slice and desktop adaptations.
 - Completed locally hosted Inter/Noto typography, base PWA manifest/icons, safe service worker, offline page, and install/update controls.
 - Completed the initial PostgreSQL/Drizzle schema, explicit migration, composite tenant keys, forced RLS policies, immutable audit trigger, and domain state machine.
+- Added environment-bootstrapped Better Auth Super Admin login; public registration is disabled and no password is embedded in source or browser code.
+- Added the real Super Admin company directory, tenant/login provisioning, and private poster upload workflow backed by PostgreSQL and S3-compatible object storage.
+- Replaced all demonstration companies and posters with database-backed company feeds, authenticated private media streaming, and persistent Approve/Request Changes/Reject actions.
+- Enforced company isolation with transaction-local tenant context, forced PostgreSQL RLS, composite tenant keys, and a negative cross-tenant read/write migration test.
 - Added unit, exact-width mobile/desktop browser, manifest, migration, lint, type, build, and dependency-audit verification.
-- Next implementation milestone: internal authentication, portal-token exchange/session, database-backed review API, direct object-storage upload, and transactional audit/outbox persistence. The current review UI still uses demonstration data.
+- Next implementation milestone: poster revision uploads, company password change/recovery, notification delivery, and the full version-history UI.
 
 ## 1. Outcome
 
@@ -22,9 +26,9 @@ The first production release must replace the core WhatsApp approval loop. It do
 
 ## 2. Current repository assessment
 
-The repository is a Vite starter containing React 19 and static demo assets. It currently has no routing, API, database, authentication, storage integration, tests, CI/CD, or deployable product structure. There is also no Git metadata in the current workspace.
+The repository is now a Next.js 16/React 19 application with server routes, Better Auth, PostgreSQL/Drizzle migrations, private S3-compatible storage, a responsive installable PWA shell, and automated verification. The initial Vite demonstration feed is no longer part of the product runtime.
 
-Treat the build as greenfield. Preserve any useful visual experiments as design references, but do not build production functionality on the current starter structure.
+The current vertical slice covers Super Admin bootstrap, company/login creation, poster publishing, tenant-private company feeds, private asset delivery, and persistent review decisions. Remaining MVP work should extend these foundations rather than introduce a second data or identity path.
 
 ## 3. Delivery assumptions and recommended product decisions
 
@@ -39,7 +43,7 @@ These defaults let implementation begin. Product owners can change them during P
 | Primary notifications | In-app plus email. Add WhatsApp and Slack only after the core delivery pipeline is reliable. |
 | Showcase consent | Default off per client. Publishing requires explicit client/workspace consent and an item-level publish action. |
 | Approval authority | Only the current version can be decided. A new version makes every older decision historical. Reopening an approved item requires PM/Admin permission and an audit reason. |
-| Client authentication | Friendly workspace slug plus an unguessable, revocable access secret. Optional email OTP upgrades the portal session for sensitive workspaces. |
+| Client authentication | The current vertical slice uses Super-Admin-created company email/password accounts. Add magic-link or OTP login later without weakening the same server-side tenant resolution and RLS boundary. |
 | Historical WhatsApp content | Do not bulk-import chats for MVP. Allow a PM to upload final historical assets and label them as imported. |
 | Visual direction | Use an Instagram-inspired, media-first feed and familiar mobile navigation, adapted to ClientLoop branding and approval tasks rather than copied pixel-for-pixel. |
 | Typography | Use Inter Variable as the production UI font, with Noto fallbacks for Indian scripts. Use Instagram Sans only if Rainhopes obtains explicit commercial web/app embedding rights. |
