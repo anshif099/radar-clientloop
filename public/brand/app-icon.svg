@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ClientLoop</title>
+  <desc id="desc">A warm rounded square with an orbit and approval mark.</desc>
+  <defs>
+    <linearGradient id="surface" x1="42" y1="22" x2="462" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF4E8"/>
+      <stop offset="1" stop-color="#FFD7B2"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="112" y1="112" x2="410" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7A45"/>
+      <stop offset="1" stop-color="#FFB84D"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#surface)"/>
+  <circle cx="256" cy="256" r="147" fill="none" stroke="#1E201D" stroke-width="34" stroke-linecap="round" stroke-dasharray="720 204" transform="rotate(-36 256 256)"/>
+  <circle cx="256" cy="256" r="95" fill="none" stroke="url(#orbit)" stroke-width="34" stroke-linecap="round" stroke-dasharray="382 214" transform="rotate(38 256 256)"/>
+  <path d="m208 262 32 34 68-83" fill="none" stroke="#1E201D" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="392" cy="131" r="31" fill="#FF7043" stroke="#FFF4E8" stroke-width="14"/>
+</svg>

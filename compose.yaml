@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: clientloop
+      POSTGRES_USER: clientloop
+      POSTGRES_PASSWORD: clientloop
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clientloop -d clientloop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - clientloop_postgres:/var/lib/postgresql/data
+
+volumes:
+  clientloop_postgres:
