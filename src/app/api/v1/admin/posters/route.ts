@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireRequestSuperAdmin } from "@/auth/server";
-import { createPoster, getCompanyForAdmin } from "@/data/companies";
+import { createPoster, getCompanyForAdmin, getProjectForAdmin } from "@/data/companies";
 import { deleteObject, putObject } from "@/storage/s3";
 
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -36,13 +36,18 @@ export async function POST(request: Request) {
     const session = await requireRequestSuperAdmin(request);
     const form = await request.formData();
     const companyId = value(form, "companyId");
+    const projectId = value(form, "projectId");
     const title = value(form, "title");
-    const category = value(form, "category") || "Posters";
     const note = value(form, "note");
     const file = form.get("file");
 
-    if (!z.uuid().safeParse(companyId).success || !title || title.length > 220 || category.length > 100) {
-      return Response.json({ message: "Company, title, and a valid category are required." }, { status: 400 });
+    if (
+      !z.uuid().safeParse(companyId).success
+      || !z.uuid().safeParse(projectId).success
+      || !title
+      || title.length > 220
+    ) {
+      return Response.json({ message: "Company, project, and poster title are required." }, { status: 400 });
     }
     if (!(file instanceof File) || file.size === 0) {
       return Response.json({ message: "Select a poster image." }, { status: 400 });
@@ -56,13 +61,15 @@ export async function POST(request: Request) {
 
     const company = await getCompanyForAdmin(companyId);
     if (!company) return Response.json({ message: "Company not found." }, { status: 404 });
+    const project = await getProjectForAdmin(companyId, projectId);
+    if (!project) return Response.json({ message: "Project not found for the selected company." }, { status: 404 });
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     const detected = detectImageType(bytes);
     if (!detected || detected.mimeType !== file.type) {
       return Response.json({ message: "The uploaded file content is not a valid supported image." }, { status: 400 });
     }
-    storageKey = `agencies/${company.id}/posters/${randomUUID()}.${detected.extension}`;
+    storageKey = `agencies/${company.id}/projects/${project.id}/posters/${randomUUID()}.${detected.extension}`;
     await putObject({
       key: storageKey,
       bytes,
@@ -71,8 +78,8 @@ export async function POST(request: Request) {
     const poster = await createPoster({
       companyId: company.id,
       workspaceId: company.workspaceId,
+      projectId: project.id,
       title,
-      category,
       note,
       storageKey,
       originalName: file.name.slice(0, 255),
@@ -88,6 +95,13 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === "FORBIDDEN") {
       return Response.json({ message: "Super Admin access is required." }, { status: 403 });
+    }
+    console.error("Poster upload failed", error);
+    if (error instanceof Error && error.message.startsWith("Object storage is not configured")) {
+      return Response.json(
+        { message: "Poster storage is not configured. Add the required S3 settings, then try again." },
+        { status: 503 },
+      );
     }
     return Response.json({ message: "Poster upload failed. Please try again." }, { status: 500 });
   }

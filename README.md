@@ -10,7 +10,7 @@ PostgreSQL fits the approval workflow because companies, users, memberships, pos
 
 ## Implemented access model
 
-- Super Admin accounts have the Better Auth role `admin` and can create companies and publish posters.
+- Super Admin accounts have the Better Auth role `admin` and can create, edit, and delete companies, add projects, and publish posters under those projects.
 - Creating a company creates its tenant, private workspace, company user, membership, and login credentials in one controlled workflow.
 - Company accounts resolve to exactly one active company before any application data is queried.
 - Every company query runs through `withAgency()`, which sets a transaction-local tenant ID used by PostgreSQL RLS.
@@ -53,10 +53,11 @@ The bootstrap command is idempotent: if that Super Admin already exists, it does
 
 After login:
 
-1. Use **Add company** to enter the company name, login email, and initial password.
-2. Securely send those credentials to that company.
-3. Use **Add poster**, select the company, add poster details, and upload a JPG, PNG, WebP, or GIF up to 20 MB.
-4. The company signs in at `/login` and sees only posters belonging to its tenant.
+1. Select an existing company, or use **Add company** to enter the company name, login email, and initial password.
+2. Securely send those credentials to that company. The selected company's name and login email can be edited; deleting it disables its login while retaining audit history.
+3. Add or select a project under the selected company.
+4. Use **Add poster** to select that project, add poster details, and upload a JPG, PNG, WebP, or GIF up to 20 MB.
+5. The company signs in at `/login` and sees only posters belonging to its tenant, grouped by project name.
 
 Company review actions—Approve, Request changes, and Reject—are persisted against the current poster version with an audit event and notification outbox event.
 

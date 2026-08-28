@@ -15,7 +15,7 @@ type Filter = "all" | Decision;
 export interface ReviewWorkItem {
   id: string;
   title: string;
-  category: string;
+  project: string;
   publishedAt: string;
   version: number;
   decision: Decision;
@@ -140,7 +140,7 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
     <article className="work-card">
       <header className="work-card-header">
         <div className="work-avatar">R</div>
-        <div className="work-heading"><div className="title-row"><h2>{item.title}</h2><span className={`status-dot status-${item.decision}`} title={statusCopy[item.decision]} /></div><p>{item.category} · v{item.version} · {published}</p></div>
+        <div className="work-heading"><div className="title-row"><h2>{item.title}</h2><span className={`status-dot status-${item.decision}`} title={statusCopy[item.decision]} /></div><p>{item.project} · v{item.version} · {published}</p></div>
         <button className="icon-button" type="button" aria-label={`More options for ${item.title}`}><MoreHorizontal size={21} /></button>
       </header>
       <div className="preview-frame poster-preview">
