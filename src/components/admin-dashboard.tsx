@@ -4,6 +4,8 @@ import {
   Building2,
   FolderKanban,
   FolderPlus,
+  Eye,
+  EyeOff,
   ImagePlus,
   LogOut,
   Pencil,
@@ -57,6 +59,7 @@ export function AdminDashboard({
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [showCompanyForm, setShowCompanyForm] = useState(!initialCompanies.length);
   const [editingCompany, setEditingCompany] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [companyBusy, setCompanyBusy] = useState(false);
   const [projectBusy, setProjectBusy] = useState(false);
   const [posterBusy, setPosterBusy] = useState(false);
@@ -70,6 +73,7 @@ export function AdminDashboard({
     setSelectedCompanyId(companyId);
     setSelectedProjectId("");
     setEditingCompany(false);
+    setShowEditPassword(false);
     setShowCompanyForm(false);
     setMessage(null);
   };
@@ -121,12 +125,19 @@ export function AdminDashboard({
       });
       if (!response.ok) throw new Error(await responseMessage(response));
 
-      const { company } = await response.json() as {
+      const { company, passwordUpdated } = await response.json() as {
         company: Pick<Company, "id" | "name" | "slug" | "email">;
+        passwordUpdated: boolean;
       };
       setCompanies((current) => current.map((item) => item.id === company.id ? { ...item, ...company } : item));
       setEditingCompany(false);
-      setMessage({ kind: "success", text: `${company.name} was updated.` });
+      setShowEditPassword(false);
+      setMessage({
+        kind: "success",
+        text: passwordUpdated
+          ? `${company.name} was updated and the new password was saved.`
+          : `${company.name} was updated.`,
+      });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Company could not be updated." });
     } finally {
@@ -275,7 +286,7 @@ export function AdminDashboard({
                 <small>{selectedProjects.length} projects · {selectedCompany.posterCount} posters</small>
               </div>
               <div className="row-actions">
-                <button className="secondary-button compact-button" type="button" onClick={() => { setEditingCompany(true); setShowCompanyForm(false); }}><Pencil size={15} />Edit</button>
+                <button className="secondary-button compact-button" type="button" onClick={() => { setEditingCompany(true); setShowEditPassword(false); setShowCompanyForm(false); }}><Pencil size={15} />Edit</button>
                 <button className="danger-button compact-button" type="button" disabled={companyBusy} onClick={() => deleteSelectedCompany(selectedCompany)}><Trash2 size={15} />Delete</button>
               </div>
             </div>
@@ -286,6 +297,14 @@ export function AdminDashboard({
               <div className="form-section-heading"><strong>Edit company</strong><button type="button" onClick={() => setEditingCompany(false)}>Cancel</button></div>
               <label>Company name<input name="name" minLength={2} maxLength={180} defaultValue={selectedCompany.name} required /></label>
               <label>Company login email<input name="email" type="email" defaultValue={selectedCompany.email} required /></label>
+              <label>
+                New password (optional)
+                <div className="password-field">
+                  <input name="password" type={showEditPassword ? "text" : "password"} minLength={12} maxLength={128} autoComplete="new-password" placeholder="Leave blank to keep current password" />
+                  <button type="button" onClick={() => setShowEditPassword((current) => !current)} aria-label={showEditPassword ? "Hide new password" : "Show new password"}>{showEditPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button>
+                </div>
+                <small>Current passwords cannot be displayed. Enter at least 12 characters only when replacing it.</small>
+              </label>
               <button className="primary-button" type="submit" disabled={companyBusy}><Pencil size={17} />{companyBusy ? "Saving…" : "Save changes"}</button>
             </form>
           ) : null}
@@ -362,7 +381,7 @@ export function AdminDashboard({
                       <td>{companyProjects}</td>
                       <td>{company.posterCount}</td>
                       <td>{new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(company.createdAt))}</td>
-                      <td><div className="table-actions"><button type="button" onClick={() => selectCompany(company.id)}>Select</button><button type="button" onClick={() => { selectCompany(company.id); setEditingCompany(true); }}>Edit</button><button className="delete-link" type="button" onClick={() => deleteSelectedCompany(company)}>Delete</button></div></td>
+                      <td><div className="table-actions"><button type="button" onClick={() => selectCompany(company.id)}>Select</button><button type="button" onClick={() => { selectCompany(company.id); setEditingCompany(true); setShowEditPassword(false); }}>Edit</button><button className="delete-link" type="button" onClick={() => deleteSelectedCompany(company)}>Delete</button></div></td>
                     </tr>
                   );
                 })}</tbody>

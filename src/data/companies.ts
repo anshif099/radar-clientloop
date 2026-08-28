@@ -256,7 +256,13 @@ export async function updateCompany(input: {
       metadata: { companyLoginEmail: email },
     });
 
-    return { id: company.id, name, slug: company.slug, email };
+    return {
+      id: company.id,
+      name,
+      slug: company.slug,
+      email,
+      authUserId: company.identityProviderId,
+    };
   });
 }
 
