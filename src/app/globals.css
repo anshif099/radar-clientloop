@@ -1436,13 +1436,12 @@ button:disabled {
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 9px 11px;
+  gap: 6px;
+  padding: 5px 7px 5px 11px;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: #faf9f6;
   color: var(--ink-soft);
-  cursor: pointer;
   text-align: left;
 }
 
@@ -1452,17 +1451,108 @@ button:disabled {
   color: var(--accent-deep);
 }
 
-.project-option span {
+.project-select-button {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-select-button span {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
 }
 
-.project-option small {
+.project-select-button small {
   flex: 0 0 auto;
   color: var(--muted);
   font-size: 10px;
+}
+
+.project-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+}
+
+.project-row-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.project-row-actions button:hover {
+  background: rgb(255 255 255 / 72%);
+}
+
+.project-row-actions .delete-link {
+  color: var(--reject);
+}
+
+.project-edit-form {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #efb8a3;
+  border-radius: 11px;
+  background: var(--accent-soft);
+}
+
+.project-edit-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.project-edit-form > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.project-edit-form button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.project-edit-form button[type="submit"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
 }
 
 .empty-projects {

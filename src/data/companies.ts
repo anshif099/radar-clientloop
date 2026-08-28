@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, ne } from "drizzle-orm";
 import { auth } from "@/auth/server";
 import { authSessions, authUsers } from "@/db/auth-schema";
 import { db, withAgency, withPlatformAdmin } from "@/db/client";
@@ -384,6 +384,102 @@ export async function createProject(input: { companyId: string; name: string; ac
       name: project.name,
       slug: project.slug,
     };
+  });
+}
+
+export async function updateProject(input: { projectId: string; name: string; actorId: string }) {
+  return withPlatformAdmin(async (transaction) => {
+    const [project] = await transaction
+      .select({
+        id: divisions.id,
+        companyId: divisions.agencyId,
+        workspaceId: clientWorkspaces.id,
+      })
+      .from(divisions)
+      .innerJoin(agencies, eq(agencies.id, divisions.agencyId))
+      .innerJoin(clientWorkspaces, eq(clientWorkspaces.agencyId, agencies.id))
+      .where(and(eq(divisions.id, input.projectId), eq(agencies.status, "ACTIVE")))
+      .limit(1);
+    if (!project) throw new Error("PROJECT_NOT_FOUND");
+
+    const name = input.name.trim();
+    const slug = toSlug(name);
+    const [existing] = await transaction
+      .select({ id: divisions.id })
+      .from(divisions)
+      .where(
+        and(
+          eq(divisions.agencyId, project.companyId),
+          eq(divisions.slug, slug),
+          ne(divisions.id, project.id),
+        ),
+      )
+      .limit(1);
+    if (existing) throw new Error("PROJECT_EXISTS");
+
+    const [updated] = await transaction
+      .update(divisions)
+      .set({ name, slug, updatedAt: new Date() })
+      .where(and(eq(divisions.id, project.id), eq(divisions.agencyId, project.companyId)))
+      .returning();
+    await transaction.insert(auditEvents).values({
+      agencyId: project.companyId,
+      workspaceId: project.workspaceId,
+      actorType: "SUPER_ADMIN",
+      actorId: input.actorId,
+      action: "PROJECT_UPDATED",
+      resourceType: "DIVISION",
+      resourceId: project.id,
+      metadata: { projectName: updated.name },
+    });
+
+    return {
+      id: updated.id,
+      companyId: updated.agencyId,
+      name: updated.name,
+      slug: updated.slug,
+    };
+  });
+}
+
+export async function deleteProject(input: { projectId: string; actorId: string }) {
+  return withPlatformAdmin(async (transaction) => {
+    const [project] = await transaction
+      .select({
+        id: divisions.id,
+        name: divisions.name,
+        companyId: divisions.agencyId,
+        workspaceId: clientWorkspaces.id,
+        posterCount: count(workItems.id),
+      })
+      .from(divisions)
+      .innerJoin(agencies, eq(agencies.id, divisions.agencyId))
+      .innerJoin(clientWorkspaces, eq(clientWorkspaces.agencyId, agencies.id))
+      .leftJoin(
+        workItems,
+        and(eq(workItems.agencyId, divisions.agencyId), eq(workItems.divisionId, divisions.id)),
+      )
+      .where(and(eq(divisions.id, input.projectId), eq(agencies.status, "ACTIVE")))
+      .groupBy(divisions.id, clientWorkspaces.id)
+      .limit(1);
+    if (!project) throw new Error("PROJECT_NOT_FOUND");
+    if (Number(project.posterCount) > 0) throw new Error("PROJECT_NOT_EMPTY");
+
+    await transaction.insert(auditEvents).values({
+      agencyId: project.companyId,
+      workspaceId: project.workspaceId,
+      actorType: "SUPER_ADMIN",
+      actorId: input.actorId,
+      action: "PROJECT_DELETED",
+      resourceType: "DIVISION",
+      resourceId: project.id,
+      metadata: { projectName: project.name },
+    });
+    await transaction
+      .delete(divisions)
+      .where(and(eq(divisions.id, project.id), eq(divisions.agencyId, project.companyId)));
+
+    return { id: project.id, companyId: project.companyId };
   });
 }
 

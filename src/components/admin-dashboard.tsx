@@ -60,6 +60,7 @@ export function AdminDashboard({
   const [showCompanyForm, setShowCompanyForm] = useState(!initialCompanies.length);
   const [editingCompany, setEditingCompany] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [companyBusy, setCompanyBusy] = useState(false);
   const [projectBusy, setProjectBusy] = useState(false);
   const [posterBusy, setPosterBusy] = useState(false);
@@ -72,6 +73,7 @@ export function AdminDashboard({
   const selectCompany = (companyId: string) => {
     setSelectedCompanyId(companyId);
     setSelectedProjectId("");
+    setEditingProjectId(null);
     setEditingCompany(false);
     setShowEditPassword(false);
     setShowCompanyForm(false);
@@ -162,6 +164,7 @@ export function AdminDashboard({
       if (selectedCompanyId === company.id) {
         setSelectedCompanyId("");
         setSelectedProjectId("");
+        setEditingProjectId(null);
         setEditingCompany(false);
       }
       setMessage({ kind: "success", text: `${company.name} was deleted and its login was disabled.` });
@@ -194,10 +197,63 @@ export function AdminDashboard({
       const created = { ...project, posterCount: 0, createdAt: new Date().toISOString() };
       setProjects((current) => [created, ...current]);
       setSelectedProjectId(project.id);
+      setEditingProjectId(null);
       formElement.reset();
       setMessage({ kind: "success", text: `${project.name} was added. You can now add posters to it.` });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Project could not be created." });
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+
+  const updateSelectedProject = async (event: React.FormEvent<HTMLFormElement>, project: Project) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setProjectBusy(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/v1/admin/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: form.get("name") }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response));
+
+      const { project: updated } = await response.json() as {
+        project: Pick<Project, "id" | "companyId" | "name" | "slug">;
+      };
+      setProjects((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      setEditingProjectId(null);
+      setMessage({ kind: "success", text: `${updated.name} was updated.` });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Project could not be updated." });
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+
+  const deleteSelectedProject = async (project: Project) => {
+    if (project.posterCount) {
+      window.alert(`${project.name} contains ${project.posterCount} posters and cannot be deleted.`);
+      return;
+    }
+    const confirmed = window.confirm(`Delete the empty project ${project.name}?`);
+    if (!confirmed) return;
+
+    setProjectBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/v1/admin/projects/${project.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await responseMessage(response));
+
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      if (selectedProjectId === project.id) setSelectedProjectId("");
+      if (editingProjectId === project.id) setEditingProjectId(null);
+      setMessage({ kind: "success", text: `${project.name} was deleted.` });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Project could not be deleted." });
     } finally {
       setProjectBusy(false);
     }
@@ -335,9 +391,22 @@ export function AdminDashboard({
               <div className="project-list">
                 <p>Projects for {selectedCompany.name}</p>
                 {selectedProjects.length ? selectedProjects.map((project) => (
-                  <button className={selectedProjectId === project.id ? "project-option active" : "project-option"} type="button" key={project.id} onClick={() => setSelectedProjectId(project.id)}>
-                    <span><FolderKanban size={17} /><strong>{project.name}</strong></span><small>{project.posterCount} posters</small>
-                  </button>
+                  editingProjectId === project.id ? (
+                    <form className="project-edit-form" key={project.id} onSubmit={(event) => updateSelectedProject(event, project)}>
+                      <input name="name" minLength={2} maxLength={100} defaultValue={project.name} aria-label={`Project name for ${project.name}`} autoFocus required />
+                      <div><button type="submit" disabled={projectBusy}>Save</button><button type="button" onClick={() => setEditingProjectId(null)}>Cancel</button></div>
+                    </form>
+                  ) : (
+                    <div className={selectedProjectId === project.id ? "project-option active" : "project-option"} key={project.id}>
+                      <button className="project-select-button" type="button" onClick={() => setSelectedProjectId(project.id)}>
+                        <span><FolderKanban size={17} /><strong>{project.name}</strong></span><small>{project.posterCount} posters</small>
+                      </button>
+                      <div className="project-row-actions">
+                        <button type="button" onClick={() => setEditingProjectId(project.id)}><Pencil size={14} />Edit</button>
+                        <button className="delete-link" type="button" onClick={() => deleteSelectedProject(project)}><Trash2 size={14} />Delete</button>
+                      </div>
+                    </div>
+                  )
                 )) : <div className="empty-projects"><FolderKanban size={24} /><span>No projects yet. Add the first one above.</span></div>}
               </div>
             </section>
