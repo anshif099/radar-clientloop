@@ -1,37 +1,52 @@
-import { boolean, index, pgSchema, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/mysql-core";
 
-export const authSchema = pgSchema("auth");
+const authTimestamps = {
+  createdAt: timestamp("created_at", { mode: "date", fsp: 3 }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date", fsp: 3 })
+    .notNull()
+    .defaultNow()
+    .onUpdateNow(),
+};
 
-export const authUsers = authSchema.table(
-  "users",
+export const authUsers = mysqlTable(
+  "auth_users",
   {
-    id: text("id").primaryKey(),
+    id: varchar("id", { length: 36 }).primaryKey(),
     name: text("name").notNull(),
-    email: text("email").notNull(),
+    email: varchar("email", { length: 255 }).notNull(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    role: text("role").notNull().default("user"),
+    ...authTimestamps,
+    role: mysqlEnum("role", ["admin", "user"]).notNull().default("user"),
     banned: boolean("banned").notNull().default(false),
     banReason: text("ban_reason"),
-    banExpires: timestamp("ban_expires", { withTimezone: true }),
+    banExpires: timestamp("ban_expires", { mode: "date", fsp: 3 }),
   },
   (table) => [uniqueIndex("auth_users_email_uq").on(table.email)],
 );
 
-export const authSessions = authSchema.table(
-  "sessions",
+export const authSessions = mysqlTable(
+  "auth_sessions",
   {
-    id: text("id").primaryKey(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    token: text("token").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    id: varchar("id", { length: 36 }).primaryKey(),
+    expiresAt: timestamp("expires_at", { mode: "date", fsp: 3 }).notNull(),
+    token: varchar("token", { length: 255 }).notNull(),
+    ...authTimestamps,
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
-    impersonatedBy: text("impersonated_by"),
+    userId: varchar("user_id", { length: 36 })
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    impersonatedBy: varchar("impersonated_by", { length: 36 }),
   },
   (table) => [
     uniqueIndex("auth_sessions_token_uq").on(table.token),
@@ -39,23 +54,24 @@ export const authSessions = authSchema.table(
   ],
 );
 
-export const authAccounts = authSchema.table(
-  "accounts",
+export const authAccounts = mysqlTable(
+  "auth_accounts",
   {
-    id: text("id").primaryKey(),
-    issuer: text("issuer").notNull(),
-    accountId: text("account_id").notNull(),
-    providerId: text("provider_id").notNull(),
-    userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    id: varchar("id", { length: 36 }).primaryKey(),
+    issuer: varchar("issuer", { length: 255 }).notNull(),
+    accountId: varchar("account_id", { length: 255 }).notNull(),
+    providerId: varchar("provider_id", { length: 255 }).notNull(),
+    userId: varchar("user_id", { length: 36 })
+      .notNull()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
-    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
-    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { mode: "date", fsp: 3 }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { mode: "date", fsp: 3 }),
     scope: text("scope"),
     password: text("password"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    ...authTimestamps,
   },
   (table) => [
     uniqueIndex("auth_accounts_issuer_account_uq").on(table.issuer, table.accountId),
@@ -63,15 +79,14 @@ export const authAccounts = authSchema.table(
   ],
 );
 
-export const authVerifications = authSchema.table(
-  "verifications",
+export const authVerifications = mysqlTable(
+  "auth_verifications",
   {
-    id: text("id").primaryKey(),
-    identifier: text("identifier").notNull(),
+    id: varchar("id", { length: 36 }).primaryKey(),
+    identifier: varchar("identifier", { length: 255 }).notNull(),
     value: text("value").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { mode: "date", fsp: 3 }).notNull(),
+    ...authTimestamps,
   },
   (table) => [index("auth_verifications_identifier_idx").on(table.identifier)],
 );

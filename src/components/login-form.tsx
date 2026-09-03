@@ -38,7 +38,7 @@ export function LoginForm() {
         </form>
         <p className="auth-footnote">Accounts are created by the ClientLoop Super Admin. Public registration is disabled.</p>
       </section>
-      <aside className="auth-visual"><div><span>Review. Approve. Publish.</span><h2>Every company sees only its own work.</h2><p>Tenant isolation is enforced on the server and in PostgreSQL—not only hidden in the interface.</p></div></aside>
+      <aside className="auth-visual"><div><span>Review. Approve. Publish.</span><h2>Every company sees only its own work.</h2><p>Tenant isolation is enforced by authenticated, company-scoped server queries—not only hidden in the interface.</p></div></aside>
     </main>
   );
 }

@@ -1,41 +1,24 @@
 services:
-  postgres:
-    image: postgres:18-alpine
+  mariadb:
+    image: mariadb:10.11
     environment:
-      POSTGRES_DB: clientloop
-      POSTGRES_USER: clientloop_admin
-      POSTGRES_PASSWORD: clientloop-admin-local
+      MARIADB_DATABASE: clientloop
+      MARIADB_USER: clientloop
+      MARIADB_PASSWORD: clientloop
+      MARIADB_ROOT_PASSWORD: clientloop-root-local
+      TZ: UTC
     ports:
-      - "5432:5432"
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clientloop_admin -d clientloop"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
     volumes:
-      - clientloop_postgres:/var/lib/postgresql/data
-      - ./docker/postgres/init-app-role.sql:/docker-entrypoint-initdb.d/10-init-app-role.sql:ro
-
-  minio:
-    image: quay.io/minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: clientloop
-      MINIO_ROOT_PASSWORD: clientloop-local-storage
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - clientloop_minio:/data
-
-  minio-init:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "until mc alias set local http://minio:9000 clientloop clientloop-local-storage; do sleep 1; done;
-      mc mb --ignore-existing local/clientloop-private"
+      - clientloop_mariadb:/var/lib/mysql
 
 volumes:
-  clientloop_postgres:
-  clientloop_minio:
+  clientloop_mariadb:

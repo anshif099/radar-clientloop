@@ -1,120 +1,84 @@
-import { readdir, readFile } from "node:fs/promises";
-import { PGlite } from "@electric-sql/pglite";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { betterAuth } from "better-auth/minimal";
-import { admin } from "better-auth/plugins";
-import { drizzle } from "drizzle-orm/pglite";
-import { betterAuthSchema } from "../src/db/auth-schema";
+import { readFile, readdir } from "node:fs/promises";
 
-const database = new PGlite();
+const migrationFiles = (await readdir("drizzle"))
+  .filter((file) => file.endsWith(".sql"))
+  .sort((left, right) => left.localeCompare(right));
+const migrations = (
+  await Promise.all(migrationFiles.map((file) => readFile(`drizzle/${file}`, "utf8")))
+).join("\n");
 
-try {
-  const migrationFiles = (await readdir("drizzle"))
-    .filter((file) => file.endsWith(".sql"))
-    .sort((left, right) => left.localeCompare(right));
+const requiredTables = [
+  "auth_users",
+  "auth_sessions",
+  "auth_accounts",
+  "auth_verifications",
+  "agencies",
+  "users",
+  "agency_memberships",
+  "client_workspaces",
+  "workspace_memberships",
+  "portal_access_tokens",
+  "divisions",
+  "work_items",
+  "work_item_versions",
+  "assets",
+  "version_assets",
+  "review_decisions",
+  "feedback_entries",
+  "audit_events",
+  "outbox_events",
+];
 
-  for (const file of migrationFiles) {
-    const migration = await readFile(`drizzle/${file}`, "utf8");
-    const pgliteCompatibleMigration = migration.replace(
-      "create extension if not exists pgcrypto;",
-      "-- pgcrypto is available in the production PostgreSQL image",
-    );
-    await database.exec(pgliteCompatibleMigration);
+for (const table of requiredTables) {
+  if (!new RegExp(`CREATE\\s+TABLE\\s+${table}\\b`, "i").test(migrations)) {
+    throw new Error(`MySQL migration does not create required table: ${table}`);
   }
-
-const tables = await database.query<{ table_name: string }>(`
-  select table_name
-  from information_schema.tables
-  where table_schema = 'public'
-  order by table_name
-`);
-
-  const policies = await database.query<{ count: number }>(`
-    select count(*)::int as count
-    from pg_policies
-    where schemaname = 'public'
-  `);
-
-const authTables = await database.query<{ table_name: string }>(`
-  select table_name
-  from information_schema.tables
-  where table_schema = 'auth'
-  order by table_name
-`);
-
-  if (tables.rows.length !== 15) {
-    throw new Error(`Expected 15 foundation tables, found ${tables.rows.length}.`);
-  }
-
-  if (authTables.rows.length !== 4) {
-    throw new Error(`Expected 4 authentication tables, found ${authTables.rows.length}.`);
-  }
-
-  if (policies.rows[0]?.count !== 15) {
-    throw new Error(`Expected 15 tenant policies, found ${policies.rows[0]?.count ?? 0}.`);
-  }
-
-  const tenantA = "11111111-1111-4111-8111-111111111111";
-  const tenantB = "22222222-2222-4222-8222-222222222222";
-  await database.exec(`
-    select set_config('app.current_is_super_admin', 'true', false);
-    insert into agencies (id, name, slug) values
-      ('${tenantA}', 'Tenant A', 'tenant-a'),
-      ('${tenantB}', 'Tenant B', 'tenant-b');
-    create role clientloop_tenant_test noinherit;
-    grant usage on schema public, app to clientloop_tenant_test;
-    grant select on agencies to clientloop_tenant_test;
-    grant insert on client_workspaces to clientloop_tenant_test;
-    select set_config('app.current_is_super_admin', 'false', false);
-    select set_config('app.current_agency_id', '${tenantA}', false);
-    set role clientloop_tenant_test;
-  `);
-  const visibleAgencies = await database.query<{ id: string }>("select id from agencies order by id");
-  if (visibleAgencies.rows.length !== 1 || visibleAgencies.rows[0]?.id !== tenantA) {
-    throw new Error("Row-level security did not isolate the active tenant.");
-  }
-
-  let crossTenantWriteWasBlocked = false;
-  try {
-    await database.exec(`insert into client_workspaces (agency_id, name, slug) values ('${tenantB}', 'Wrong tenant', 'wrong-tenant')`);
-  } catch {
-    crossTenantWriteWasBlocked = true;
-  }
-  if (!crossTenantWriteWasBlocked) {
-    throw new Error("Row-level security allowed a cross-tenant write.");
-  }
-
-  await database.exec("reset role; select set_config('app.current_is_super_admin', 'true', false)");
-  const validationDb = drizzle(database, { schema: betterAuthSchema });
-  const validationAuth = betterAuth({
-    baseURL: "http://localhost:3000",
-    secret: "migration-validation-secret-with-more-than-32-characters",
-    database: drizzleAdapter(validationDb, {
-      provider: "pg",
-      schema: betterAuthSchema,
-      transaction: true,
-    }),
-    emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 12 },
-    plugins: [admin({ defaultRole: "user", adminRoles: ["admin"] })],
-  });
-  const createdAdmin = await validationAuth.api.createUser({
-    body: {
-      name: "Migration Validator",
-      email: "validator@example.invalid",
-      password: "Validation-Password-Only-42",
-      role: "admin",
-    },
-  });
-  const signedIn = await validationAuth.api.signInEmail({
-    body: { email: "validator@example.invalid", password: "Validation-Password-Only-42" },
-  });
-  if (signedIn.user.id !== createdAdmin.user.id || signedIn.user.role !== "admin") {
-    throw new Error("Authentication schema did not support Super Admin creation and login.");
-  }
-
-  process.stdout.write(
-    `Validated ${tables.rows.length} application tables, ${authTables.rows.length} auth tables, ${policies.rows[0].count} tenant policies, cross-tenant isolation, and credential login.\n`,
-  );
-} finally {
-  await database.close();
 }
+
+const forbiddenPostgresSyntax = [
+  /pgcrypto/i,
+  /row\s+level\s+security/i,
+  /\btimestamptz\b/i,
+  /\bjsonb\b/i,
+  /\bplpgsql\b/i,
+  /\bset_config\b/i,
+  /\bcreate\s+policy\b/i,
+];
+for (const pattern of forbiddenPostgresSyntax) {
+  if (pattern.test(migrations)) {
+    throw new Error(`PostgreSQL-only syntax remains in MySQL migrations: ${pattern}`);
+  }
+}
+
+if (!/CREATE\s+TRIGGER\s+audit_events_immutable_update/i.test(migrations)
+  || !/CREATE\s+TRIGGER\s+audit_events_immutable_delete/i.test(migrations)) {
+  throw new Error("Audit event immutability triggers are missing.");
+}
+
+const [clientSource, authSource, repositorySource] = await Promise.all([
+  readFile("src/db/client.ts", "utf8"),
+  readFile("src/auth/config.ts", "utf8"),
+  readFile("src/data/companies.ts", "utf8"),
+]);
+
+if (!clientSource.includes("drizzle-orm/mysql2") || !authSource.includes('provider: "mysql"')) {
+  throw new Error("The runtime database or Better Auth adapter is not configured for MySQL.");
+}
+if (repositorySource.includes(".returning(")) {
+  throw new Error("A PostgreSQL-style RETURNING query remains in the repository.");
+}
+
+for (const tenantPredicate of [
+  "eq(workItems.agencyId, context.agencyId)",
+  "eq(workItems.workspaceId, context.workspaceId)",
+  "eq(assets.agencyId, context.agencyId)",
+  "eq(assets.workspaceId, context.workspaceId)",
+]) {
+  if (!repositorySource.includes(tenantPredicate)) {
+    throw new Error(`A required company-scope predicate is missing: ${tenantPredicate}`);
+  }
+}
+
+process.stdout.write(
+  `Validated ${migrationFiles.length} MariaDB/MySQL migrations, ${requiredTables.length} tables, auth configuration, audit immutability, and company-scope query guards.\n`,
+);

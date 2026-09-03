@@ -44,8 +44,8 @@ export async function POST(request: Request, route: { params: Promise<{ posterId
     if (error instanceof Error && error.message === "NOT_REVIEWABLE") {
       return Response.json({ message: "This poster has already been reviewed." }, { status: 409 });
     }
-    const databaseError = error as { code?: string };
-    if (databaseError.code === "23505") {
+    const databaseError = error as { code?: string; errno?: number };
+    if (databaseError.code === "ER_DUP_ENTRY" || databaseError.errno === 1062) {
       return Response.json({ message: "This review was already submitted." }, { status: 409 });
     }
     throw error;

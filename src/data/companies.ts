@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, ne } from "drizzle-orm";
 import { auth } from "@/auth/server";
 import { authSessions, authUsers } from "@/db/auth-schema";
@@ -126,7 +127,7 @@ async function uniqueAgencySlug(name: string) {
   const base = toSlug(name);
   return withPlatformAdmin(async (transaction) => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const suffix = attempt === 0 ? "" : `-${crypto.randomUUID().slice(0, 6)}`;
+      const suffix = attempt === 0 ? "" : `-${randomUUID().slice(0, 6)}`;
       const candidate = `${base.slice(0, 64 - suffix.length)}${suffix}`;
       const existing = await transaction
         .select({ id: agencies.id })
@@ -153,22 +154,18 @@ export async function createCompany(input: { name: string; email: string; passwo
 
   try {
     const company = await withPlatformAdmin(async (transaction) => {
-      const [agency] = await transaction
-        .insert(agencies)
-        .values({ name: input.name.trim(), slug })
-        .returning();
-      const [profile] = await transaction
-        .insert(users)
-        .values({
-          identityProviderId: createdAuth.user.id,
-          email: createdAuth.user.email,
-          displayName: createdAuth.user.name,
-        })
-        .returning();
-      const [workspace] = await transaction
-        .insert(clientWorkspaces)
-        .values({ agencyId: agency.id, name: agency.name, slug: "review" })
-        .returning();
+      const agency = { id: randomUUID(), name: input.name.trim(), slug };
+      const profile = {
+        id: randomUUID(),
+        identityProviderId: createdAuth.user.id,
+        email: createdAuth.user.email,
+        displayName: createdAuth.user.name,
+      };
+      const workspace = { id: randomUUID(), agencyId: agency.id, name: agency.name, slug: "review" };
+
+      await transaction.insert(agencies).values(agency);
+      await transaction.insert(users).values(profile);
+      await transaction.insert(clientWorkspaces).values(workspace);
 
       await transaction.insert(agencyMemberships).values({
         agencyId: agency.id,
@@ -363,10 +360,8 @@ export async function createProject(input: { companyId: string; name: string; ac
       .limit(1);
     if (existing) throw new Error("PROJECT_EXISTS");
 
-    const [project] = await transaction
-      .insert(divisions)
-      .values({ agencyId: company.id, name, slug })
-      .returning();
+    const project = { id: randomUUID(), agencyId: company.id, name, slug };
+    await transaction.insert(divisions).values(project);
     await transaction.insert(auditEvents).values({
       agencyId: company.id,
       workspaceId: company.workspaceId,
@@ -417,11 +412,10 @@ export async function updateProject(input: { projectId: string; name: string; ac
       .limit(1);
     if (existing) throw new Error("PROJECT_EXISTS");
 
-    const [updated] = await transaction
+    await transaction
       .update(divisions)
       .set({ name, slug, updatedAt: new Date() })
-      .where(and(eq(divisions.id, project.id), eq(divisions.agencyId, project.companyId)))
-      .returning();
+      .where(and(eq(divisions.id, project.id), eq(divisions.agencyId, project.companyId)));
     await transaction.insert(auditEvents).values({
       agencyId: project.companyId,
       workspaceId: project.workspaceId,
@@ -430,14 +424,14 @@ export async function updateProject(input: { projectId: string; name: string; ac
       action: "PROJECT_UPDATED",
       resourceType: "DIVISION",
       resourceId: project.id,
-      metadata: { projectName: updated.name },
+      metadata: { projectName: name },
     });
 
     return {
-      id: updated.id,
-      companyId: updated.agencyId,
-      name: updated.name,
-      slug: updated.slug,
+      id: project.id,
+      companyId: project.companyId,
+      name,
+      slug,
     };
   });
 }
@@ -537,43 +531,40 @@ export async function createPoster(input: {
       .limit(1);
     if (!project) throw new Error("PROJECT_NOT_FOUND");
 
-    const [asset] = await transaction
-      .insert(assets)
-      .values({
-        agencyId: input.companyId,
-        workspaceId: input.workspaceId,
-        storageKey: input.storageKey,
-        originalName: input.originalName,
-        declaredMimeType: input.mimeType,
-        detectedMimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        status: "READY",
-      })
-      .returning();
+    const asset = {
+      id: randomUUID(),
+      agencyId: input.companyId,
+      workspaceId: input.workspaceId,
+      storageKey: input.storageKey,
+      originalName: input.originalName,
+      declaredMimeType: input.mimeType,
+      detectedMimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "READY" as const,
+    };
+    await transaction.insert(assets).values(asset);
     const now = new Date();
-    const [item] = await transaction
-      .insert(workItems)
-      .values({
-        agencyId: input.companyId,
-        workspaceId: input.workspaceId,
-        divisionId: project.id,
-        title: input.title,
-        description: input.note || null,
-        status: "AWAITING_CLIENT_REVIEW",
-        firstPublishedAt: now,
-      })
-      .returning();
-    const [version] = await transaction
-      .insert(workItemVersions)
-      .values({
-        agencyId: input.companyId,
-        workItemId: item.id,
-        versionNumber: 1,
-        status: "PUBLISHED",
-        note: input.note || null,
-        publishedAt: now,
-      })
-      .returning();
+    const item = {
+      id: randomUUID(),
+      agencyId: input.companyId,
+      workspaceId: input.workspaceId,
+      divisionId: project.id,
+      title: input.title,
+      description: input.note || null,
+      status: "AWAITING_CLIENT_REVIEW" as const,
+      firstPublishedAt: now,
+    };
+    await transaction.insert(workItems).values(item);
+    const version = {
+      id: randomUUID(),
+      agencyId: input.companyId,
+      workItemId: item.id,
+      versionNumber: 1,
+      status: "PUBLISHED" as const,
+      note: input.note || null,
+      publishedAt: now,
+    };
+    await transaction.insert(workItemVersions).values(version);
     await transaction.insert(versionAssets).values({
       agencyId: input.companyId,
       versionId: version.id,
@@ -709,18 +700,17 @@ export async function recordCompanyDecision(input: {
     if (!item?.currentVersionId || item.status === "ARCHIVED") throw new Error("NOT_FOUND");
     if (item.status !== "AWAITING_CLIENT_REVIEW") throw new Error("NOT_REVIEWABLE");
 
-    const [review] = await transaction
-      .insert(reviewDecisions)
-      .values({
-        agencyId: input.context.agencyId,
-        workspaceId: input.context.workspaceId,
-        workItemId: item.id,
-        versionId: item.currentVersionId,
-        decision: input.decision,
-        reviewerLabel: input.context.displayName,
-        idempotencyKey: input.idempotencyKey,
-      })
-      .returning();
+    const review = {
+      id: randomUUID(),
+      agencyId: input.context.agencyId,
+      workspaceId: input.context.workspaceId,
+      workItemId: item.id,
+      versionId: item.currentVersionId,
+      decision: input.decision,
+      reviewerLabel: input.context.displayName,
+      idempotencyKey: input.idempotencyKey,
+    };
+    await transaction.insert(reviewDecisions).values(review);
 
     if (input.feedback?.trim()) {
       await transaction.insert(feedbackEntries).values({

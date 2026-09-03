@@ -11,7 +11,7 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   secret: process.env.BETTER_AUTH_SECRET ?? buildTimeSecret,
   database: drizzleAdapter(db, {
-    provider: "pg",
+    provider: "mysql",
     schema: betterAuthSchema,
     transaction: true,
   }),

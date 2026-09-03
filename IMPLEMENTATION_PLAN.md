@@ -1,5 +1,7 @@
 # Radar ClientLoop — Implementation Plan
 
+> Historical architecture note: this plan records the original PostgreSQL/S3 design. The current cPanel-targeted implementation uses MariaDB/MySQL with explicit tenant-scoped repositories and private filesystem poster storage. See `README.md` and `CPANEL_DEPLOYMENT.md` for the active setup.
+
 Status: In progress  
 Prepared for: Rainhopes  
 Baseline: Product & Technical Specification v1.0  

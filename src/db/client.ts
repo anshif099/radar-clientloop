@@ -1,41 +1,44 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import { sql } from "drizzle-orm";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import * as schema from "./schema";
 import * as authSchema from "./auth-schema";
 
 const databaseUrl =
-  process.env.DATABASE_URL ?? "postgresql://clientloop:clientloop@localhost:5432/clientloop";
+  process.env.DATABASE_URL ?? "mysql://clientloop:clientloop@127.0.0.1:3306/clientloop";
 
-const queryClient = postgres(databaseUrl, {
-  max: 10,
-  idle_timeout: 20,
-  connect_timeout: 10,
-  prepare: false,
+const queryPool = mysql.createPool({
+  uri: databaseUrl,
+  connectionLimit: 10,
+  enableKeepAlive: true,
+  waitForConnections: true,
+  timezone: "Z",
 });
 
-export const db = drizzle(queryClient, { schema: { ...schema, ...authSchema } });
+export const db = drizzle({
+  client: queryPool,
+  schema: { ...schema, ...authSchema },
+  mode: "default",
+});
 
+/**
+ * MariaDB does not provide PostgreSQL-style row-level security. Company-facing
+ * repositories must include both agencyId and workspaceId in every predicate.
+ * This wrapper keeps those operations transactional and rejects an empty scope.
+ */
 export async function withAgency<T>(
   agencyId: string,
   operation: (transaction: typeof db) => Promise<T>,
 ): Promise<T> {
-  return db.transaction(async (transaction) => {
-    await transaction.execute(sql`select set_config('app.current_is_super_admin', 'false', true)`);
-    await transaction.execute(sql`select set_config('app.current_agency_id', ${agencyId}, true)`);
-    return operation(transaction as unknown as typeof db);
-  });
+  if (!agencyId) throw new Error("A company scope is required.");
+  return db.transaction((transaction) => operation(transaction as unknown as typeof db));
 }
 
 export async function withPlatformAdmin<T>(
   operation: (transaction: typeof db) => Promise<T>,
 ): Promise<T> {
-  return db.transaction(async (transaction) => {
-    await transaction.execute(sql`select set_config('app.current_is_super_admin', 'true', true)`);
-    return operation(transaction as unknown as typeof db);
-  });
+  return db.transaction((transaction) => operation(transaction as unknown as typeof db));
 }
 
 export async function closeDatabase() {
-  await queryClient.end();
+  await queryPool.end();
 }

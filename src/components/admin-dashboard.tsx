@@ -422,7 +422,7 @@ export function AdminDashboard({
                 <label>Poster title<input name="title" maxLength={220} required /></label>
                 <label>Note<textarea name="note" maxLength={3000} rows={3} /></label>
                 <label className="file-input">Poster image<input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required /><small>JPG, PNG, WebP, or GIF · maximum 20 MB</small></label>
-                {!posterStorageConfigured ? <p className="storage-warning" role="note">Poster storage is not configured. Add the S3 environment settings before uploading.</p> : null}
+                {!posterStorageConfigured ? <p className="storage-warning" role="note">Poster storage is not configured. Add UPLOAD_ROOT before uploading.</p> : null}
                 <button className="primary-button" type="submit" disabled={posterBusy || !selectedProject || !posterStorageConfigured}><Upload size={18} />{posterBusy ? "Uploading…" : "Publish poster"}</button>
               </form>
             </section>

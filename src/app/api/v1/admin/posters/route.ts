@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireRequestSuperAdmin } from "@/auth/server";
 import { createPoster, getCompanyForAdmin, getProjectForAdmin } from "@/data/companies";
-import { deleteObject, putObject } from "@/storage/s3";
+import { deleteObject, putObject } from "@/storage/filesystem";
 
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const maximumFileSize = 20 * 1024 * 1024;
@@ -97,9 +97,9 @@ export async function POST(request: Request) {
       return Response.json({ message: "Super Admin access is required." }, { status: 403 });
     }
     console.error("Poster upload failed", error);
-    if (error instanceof Error && error.message.startsWith("Object storage is not configured")) {
+    if (error instanceof Error && error.message.startsWith("Poster storage is not configured")) {
       return Response.json(
-        { message: "Poster storage is not configured. Add the required S3 settings, then try again." },
+        { message: "Poster storage is not configured. Set UPLOAD_ROOT, then try again." },
         { status: 503 },
       );
     }
