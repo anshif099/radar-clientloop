@@ -62,6 +62,13 @@ export interface CompanyPoster {
   note: string;
 }
 
+export interface CompanyProject {
+  id: string;
+  name: string;
+  posterCount: number;
+  createdAt: string;
+}
+
 export interface AdminPosterVersion {
   id: string;
   versionNumber: number;
@@ -888,10 +895,47 @@ export async function getAdminAsset(assetId: string) {
   return result[0] ?? null;
 }
 
-function itemDecision(status: typeof workItems.$inferSelect.status): CompanyPoster["decision"] {
+function itemDecision(
+  status: typeof workItems.$inferSelect.status,
+  reviewDecision: typeof reviewDecisions.$inferSelect.decision | null,
+): CompanyPoster["decision"] {
+  if (reviewDecision === "REJECT") return "rejected";
+  if (reviewDecision === "REQUEST_CHANGES") return "changes";
+  if (reviewDecision === "APPROVE") return "approved";
   if (status === "APPROVED") return "approved";
   if (status === "REVISION_REQUIRED") return "changes";
   return "pending";
+}
+
+export async function listCompanyProjects(context: CompanyContext): Promise<CompanyProject[]> {
+  return withAgency(context.agencyId, async (transaction) => {
+    const rows = await transaction
+      .select({
+        id: divisions.id,
+        name: divisions.name,
+        posterCount: count(workItems.id),
+        createdAt: divisions.createdAt,
+      })
+      .from(divisions)
+      .leftJoin(
+        workItems,
+        and(
+          eq(workItems.agencyId, divisions.agencyId),
+          eq(workItems.workspaceId, context.workspaceId),
+          eq(workItems.divisionId, divisions.id),
+        ),
+      )
+      .where(eq(divisions.agencyId, context.agencyId))
+      .groupBy(divisions.id)
+      .orderBy(desc(divisions.createdAt));
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      posterCount: Number(row.posterCount),
+      createdAt: row.createdAt.toISOString(),
+    }));
+  });
 }
 
 export async function listCompanyPosters(context: CompanyContext): Promise<CompanyPoster[]> {
@@ -904,6 +948,7 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
         publishedAt: workItemVersions.publishedAt,
         version: workItemVersions.versionNumber,
         status: workItems.status,
+        reviewDecision: reviewDecisions.decision,
         assetId: assets.id,
         note: workItemVersions.note,
         comments: count(reviewDecisions.id),
@@ -936,6 +981,7 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
         and(
           eq(reviewDecisions.agencyId, workItems.agencyId),
           eq(reviewDecisions.workItemId, workItems.id),
+          eq(reviewDecisions.versionId, workItemVersions.id),
         ),
       )
       .where(
@@ -952,6 +998,7 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
         workItemVersions.versionNumber,
         assets.id,
         workItemVersions.note,
+        reviewDecisions.decision,
       )
       .orderBy(desc(workItemVersions.publishedAt));
 
@@ -961,7 +1008,7 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
       project: row.project ?? "Unassigned",
       publishedAt: (row.publishedAt ?? new Date()).toISOString(),
       version: row.version,
-      decision: itemDecision(row.status),
+      decision: itemDecision(row.status, row.reviewDecision),
       preview: `/api/v1/company/assets/${row.assetId}`,
       comments: Number(row.comments),
       note: row.note ?? "",

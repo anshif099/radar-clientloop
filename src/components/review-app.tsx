@@ -1,8 +1,26 @@
 "use client";
 
 import {
-  BarChart3, Bell, Check, CheckCircle2, ChevronDown, Clock3, Download, Home, LogOut,
-  MessageCircleMore, MoreHorizontal, RotateCcw, Send, Sparkles, X,
+  ArrowRight,
+  BarChart3,
+  Bell,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  Download,
+  FileImage,
+  FolderKanban,
+  Home,
+  LogOut,
+  MessageCircleMore,
+  MoreHorizontal,
+  RotateCcw,
+  Send,
+  Sparkles,
+  X,
+  XCircle,
 } from "lucide-react";
 import Image from "next/image";
 import { useMemo, useState } from "react";
@@ -11,6 +29,9 @@ import { PwaInstall } from "./pwa-install";
 
 export type Decision = "pending" | "approved" | "changes" | "rejected";
 type Filter = "all" | Decision;
+type WorkspaceView = "review" | "dashboard" | "downloads";
+type DateRange = "day" | "week" | "month" | "year" | "all";
+type SortOrder = "newest" | "oldest";
 
 export interface ReviewWorkItem {
   id: string;
@@ -24,16 +45,56 @@ export interface ReviewWorkItem {
   note: string;
 }
 
+export interface ReviewProject {
+  id: string;
+  name: string;
+  posterCount: number;
+  createdAt: string;
+}
+
 const filters: Array<{ value: Filter; label: string }> = [
-  { value: "all", label: "All work" },
+  { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
   { value: "changes", label: "Changes" },
+  { value: "rejected", label: "Rejected" },
   { value: "approved", label: "Approved" },
 ];
 
+const dateRanges: Array<{ value: DateRange; label: string }> = [
+  { value: "day", label: "Daily" },
+  { value: "week", label: "Weekly" },
+  { value: "month", label: "Monthly" },
+  { value: "year", label: "Yearly" },
+  { value: "all", label: "Overall" },
+];
+
 const statusCopy: Record<Decision, string> = {
-  pending: "Awaiting review", approved: "Approved", changes: "Changes requested", rejected: "Rejected",
+  pending: "Awaiting review",
+  approved: "Approved",
+  changes: "Changes requested",
+  rejected: "Rejected",
 };
+
+function isInDateRange(value: string, range: DateRange) {
+  if (range === "all") return true;
+  const date = new Date(value);
+  const cutoff = new Date();
+  if (range === "day") cutoff.setHours(0, 0, 0, 0);
+  if (range === "week") cutoff.setDate(cutoff.getDate() - 7);
+  if (range === "month") cutoff.setMonth(cutoff.getMonth() - 1);
+  if (range === "year") cutoff.setFullYear(cutoff.getFullYear() - 1);
+  return date >= cutoff;
+}
+
+function countByStatus(items: ReviewWorkItem[]) {
+  return {
+    all: items.length,
+    pending: items.filter((item) => item.decision === "pending").length,
+    approved: items.filter((item) => item.decision === "approved").length,
+    changes: items.filter((item) => item.decision === "changes").length,
+    rejected: items.filter((item) => item.decision === "rejected").length,
+  };
+}
 
 function BrandMark() {
   return (
@@ -56,49 +117,48 @@ function SignOutButton({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function Sidebar() {
+function Sidebar({ view, onChange }: { view: WorkspaceView; onChange: (view: WorkspaceView) => void }) {
   return (
     <aside className="desktop-sidebar">
       <BrandMark />
       <nav aria-label="Main navigation">
-        <button className="nav-item active" type="button"><Home size={21} strokeWidth={2.4} /><span>Review</span></button>
-        <button className="nav-item" type="button"><BarChart3 size={21} /><span>Dashboard</span></button>
-        <button className="nav-item" type="button"><Download size={21} /><span>Downloads</span></button>
+        <button className={view === "review" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("review")}><Home size={21} strokeWidth={2.4} /><span>Review</span></button>
+        <button className={view === "dashboard" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("dashboard")}><BarChart3 size={21} /><span>Dashboard</span></button>
+        <button className={view === "downloads" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("downloads")}><Download size={21} /><span>Downloads</span></button>
       </nav>
       <div className="sidebar-bottom"><PwaInstall /><SignOutButton /></div>
     </aside>
   );
 }
 
-function MobileNavigation() {
+function MobileNavigation({ view, onChange }: { view: WorkspaceView; onChange: (view: WorkspaceView) => void }) {
   return (
     <nav className="mobile-navigation" aria-label="Mobile navigation">
-      <button className="mobile-nav-item active" type="button"><Home size={23} /><span>Review</span></button>
-      <button className="mobile-nav-item" type="button"><BarChart3 size={23} /><span>Insights</span></button>
-      <button className="mobile-nav-item" type="button"><Download size={23} /><span>Files</span></button>
+      <button className={view === "review" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("review")}><Home size={23} /><span>Review</span></button>
+      <button className={view === "dashboard" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("dashboard")}><BarChart3 size={23} /><span>Dashboard</span></button>
+      <button className={view === "downloads" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("downloads")}><Download size={23} /><span>Downloads</span></button>
       <SignOutButton compact />
     </nav>
   );
 }
 
 function ActivitySummary({ items, companyName }: { items: ReviewWorkItem[]; companyName: string }) {
-  const approved = items.filter((item) => item.decision === "approved").length;
-  const pending = items.filter((item) => item.decision === "pending").length;
-  const progress = items.length ? (approved / items.length) * 360 : 0;
+  const counts = countByStatus(items);
+  const progress = counts.all ? (counts.approved / counts.all) * 360 : 0;
   return (
     <aside className="context-sidebar">
       <div className="context-head"><div><p className="eyebrow">Company workspace</p><h2>{companyName}</h2></div></div>
       <section className="progress-card" aria-label="Review progress">
-        <div className="progress-ring" style={{ "--progress": `${progress}deg` } as React.CSSProperties}><span>{approved}/{items.length}</span></div>
-        <div><p className="progress-title">Review progress</p><p className="small-copy">{pending} waiting for your response</p></div>
+        <div className="progress-ring" style={{ "--progress": `${progress}deg` } as React.CSSProperties}><span>{counts.approved}/{counts.all}</span></div>
+        <div><p className="progress-title">Review progress</p><p className="small-copy">{counts.pending} waiting for your response</p></div>
       </section>
       <section className="summary-section">
-        <div className="section-heading-row"><h3>All posters</h3><span>Live</span></div>
+        <div className="section-heading-row"><h3>Filtered posters</h3><span>{counts.all} total</span></div>
         <div className="metric-grid">
-          <div className="metric approved-metric"><span>{approved}</span><small>Approved</small></div>
-          <div className="metric pending-metric"><span>{pending}</span><small>Pending</small></div>
-          <div className="metric"><span>{items.filter((item) => item.decision === "changes").length}</span><small>Changes</small></div>
-          <div className="metric"><span>{items.length}</span><small>Delivered</small></div>
+          <div className="metric approved-metric"><span>{counts.approved}</span><small>Approved</small></div>
+          <div className="metric pending-metric"><span>{counts.pending}</span><small>Pending</small></div>
+          <div className="metric"><span>{counts.changes}</span><small>Changes</small></div>
+          <div className="metric rejected-metric"><span>{counts.rejected}</span><small>Rejected</small></div>
         </div>
       </section>
       <div className="privacy-note"><CheckCircle2 size={18} /><p><strong>Private company workspace</strong>Your account can only access posters assigned to {companyName}.</p></div>
@@ -107,7 +167,11 @@ function ActivitySummary({ items, companyName }: { items: ReviewWorkItem[]; comp
 }
 
 function FeedbackSheet({ item, decision, busy, onClose, onSubmit }: {
-  item: ReviewWorkItem; decision: "changes" | "rejected"; busy: boolean; onClose: () => void; onSubmit: (note: string) => void;
+  item: ReviewWorkItem;
+  decision: "changes" | "rejected";
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (note: string) => void;
 }) {
   const [note, setNote] = useState("");
   const [showValidation, setShowValidation] = useState(false);
@@ -133,9 +197,12 @@ function FeedbackSheet({ item, decision, busy, onClose, onSubmit }: {
 }
 
 function WorkCard({ item, busy, onApprove, onFeedback }: {
-  item: ReviewWorkItem; busy: boolean; onApprove: () => void; onFeedback: (decision: "changes" | "rejected") => void;
+  item: ReviewWorkItem;
+  busy: boolean;
+  onApprove: () => void;
+  onFeedback: (decision: "changes" | "rejected") => void;
 }) {
-  const published = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.publishedAt));
+  const published = new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.publishedAt));
   return (
     <article className="work-card">
       <header className="work-card-header">
@@ -144,7 +211,6 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         <button className="icon-button" type="button" aria-label={`More options for ${item.title}`}><MoreHorizontal size={21} /></button>
       </header>
       <div className="preview-frame poster-preview">
-        {/* Direct loading preserves the authenticated cookie on private media requests. */}
         <img src={item.preview} alt={`${item.title} poster`} />
         <span className={`preview-status status-pill status-${item.decision}`}>{statusCopy[item.decision]}</span>
       </div>
@@ -153,8 +219,10 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
         {item.decision === "approved" ? (
           <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This poster is ready to use.</span></div><a href={`${item.preview}?download=1`} aria-label="Download approved poster"><Download size={19} /></a></div>
-        ) : item.decision === "changes" || item.decision === "rejected" ? (
-          <div className="changes-message" role="status"><RotateCcw size={20} /><div><strong>Feedback submitted</strong><span>Waiting for a revised poster from Rainhopes.</span></div></div>
+        ) : item.decision === "changes" ? (
+          <div className="changes-message" role="status"><RotateCcw size={20} /><div><strong>Changes requested</strong><span>Waiting for a revised poster from Rainhopes.</span></div></div>
+        ) : item.decision === "rejected" ? (
+          <div className="changes-message rejected-message" role="status"><XCircle size={20} /><div><strong>Poster rejected</strong><span>Your feedback was sent to Rainhopes.</span></div></div>
         ) : (
           <div className="review-actions" aria-label={`Review actions for ${item.title}`}>
             <button className="approve-action" type="button" disabled={busy} onClick={onApprove}><Check size={19} />Approve</button>
@@ -167,26 +235,151 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
   );
 }
 
-export function ReviewApp({ initialItems, companyName, viewerName }: { initialItems: ReviewWorkItem[]; companyName: string; viewerName: string }) {
+function DateRangeSelect({ value, onChange }: { value: DateRange; onChange: (range: DateRange) => void }) {
+  return (
+    <label className="portal-range-select">
+      <CalendarDays size={16} />
+      <span className="sr-only">Activity period</span>
+      <select value={value} onChange={(event) => onChange(event.target.value as DateRange)}>
+        {dateRanges.map((range) => <option value={range.value} key={range.value}>{range.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject }: {
+  projects: ReviewProject[];
+  items: ReviewWorkItem[];
+  dateRange: DateRange;
+  onDateRange: (range: DateRange) => void;
+  onOpenProject: (projectName: string) => void;
+}) {
+  const counts = countByStatus(items);
+  return (
+    <div className="portal-view-container">
+      <section className="portal-page-header">
+        <div><p className="eyebrow">Workspace overview</p><h1>Dashboard</h1><p>Review progress across all your projects.</p></div>
+        <DateRangeSelect value={dateRange} onChange={onDateRange} />
+      </section>
+      <section className="portal-summary-grid" aria-label="Poster counts">
+        <div><span className="portal-summary-icon all"><Sparkles size={20} /></span><p><strong>{counts.all}</strong><small>All posters</small></p></div>
+        <div><span className="portal-summary-icon pending"><Clock3 size={20} /></span><p><strong>{counts.pending}</strong><small>Pending</small></p></div>
+        <div><span className="portal-summary-icon approved"><Check size={20} /></span><p><strong>{counts.approved}</strong><small>Approved</small></p></div>
+        <div><span className="portal-summary-icon changes"><RotateCcw size={20} /></span><p><strong>{counts.changes}</strong><small>Changes</small></p></div>
+        <div><span className="portal-summary-icon rejected"><X size={20} /></span><p><strong>{counts.rejected}</strong><small>Rejected</small></p></div>
+      </section>
+      <section className="portal-project-section">
+        <div className="portal-section-title"><div><p className="eyebrow">All work</p><h2>Projects</h2></div><span>{projects.length} total</span></div>
+        {projects.length ? (
+          <div className="portal-project-grid">
+            {projects.map((project) => {
+              const projectItems = items.filter((item) => item.project === project.name);
+              const projectCounts = countByStatus(projectItems);
+              return (
+                <button type="button" key={project.id} onClick={() => onOpenProject(project.name)}>
+                  <span className="portal-project-icon"><FolderKanban size={22} /></span>
+                  <span className="portal-project-copy"><strong>{project.name}</strong><small>{projectCounts.all} posters in this period</small></span>
+                  <span className="portal-project-counts"><em>{projectCounts.pending} pending</em><em>{projectCounts.approved} approved</em></span>
+                  <ArrowRight size={18} />
+                </button>
+              );
+            })}
+          </div>
+        ) : <div className="empty-state"><FolderKanban size={34} /><h2>No projects yet</h2><p>Your projects will appear here when they are created.</p></div>}
+      </section>
+    </div>
+  );
+}
+
+function DownloadsView({ items, projects, projectFilter, dateRange, onProjectFilter, onDateRange }: {
+  items: ReviewWorkItem[];
+  projects: ReviewProject[];
+  projectFilter: string;
+  dateRange: DateRange;
+  onProjectFilter: (project: string) => void;
+  onDateRange: (range: DateRange) => void;
+}) {
+  const downloads = items.filter((item) => item.decision === "approved");
+  return (
+    <div className="portal-view-container">
+      <section className="portal-page-header">
+        <div><p className="eyebrow">Approved files</p><h1>Downloads</h1><p>Download the latest approved artwork from every project.</p></div>
+        <DateRangeSelect value={dateRange} onChange={onDateRange} />
+      </section>
+      <div className="portal-toolbar">
+        <label><FolderKanban size={16} /><span className="sr-only">Project</span><select value={projectFilter} onChange={(event) => onProjectFilter(event.target.value)}><option value="all">All projects</option>{projects.map((project) => <option value={project.name} key={project.id}>{project.name}</option>)}</select></label>
+        <span>{downloads.length} approved {downloads.length === 1 ? "file" : "files"}</span>
+      </div>
+      {downloads.length ? (
+        <section className="portal-download-grid">
+          {downloads.map((item) => (
+            <article key={item.id}>
+              <div><img src={item.preview} alt={`${item.title} poster`} /><span><CheckCircle2 size={14} />Approved</span></div>
+              <section><div><strong>{item.title}</strong><small>{item.project} · Version {item.version}</small></div><a href={`${item.preview}?download=1`} aria-label={`Download ${item.title}`}><Download size={18} /></a></section>
+            </article>
+          ))}
+        </section>
+      ) : <div className="empty-state"><Download size={34} /><h2>No approved downloads</h2><p>Approved posters matching these filters will appear here.</p></div>}
+    </div>
+  );
+}
+
+export function ReviewApp({ initialItems, initialProjects, companyName, viewerName }: {
+  initialItems: ReviewWorkItem[];
+  initialProjects: ReviewProject[];
+  companyName: string;
+  viewerName: string;
+}) {
   const [items, setItems] = useState(initialItems);
+  const [view, setView] = useState<WorkspaceView>("review");
   const [filter, setFilter] = useState<Filter>("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [feedback, setFeedback] = useState<{ itemId: string; decision: "changes" | "rejected" } | null>(null);
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const visibleItems = useMemo(() => filter === "all" ? items : items.filter((item) => item.decision === filter), [filter, items]);
-  const pendingCount = items.filter((item) => item.decision === "pending").length;
+
+  const dateItems = useMemo(
+    () => items.filter((item) => isInDateRange(item.publishedAt, dateRange)),
+    [dateRange, items],
+  );
+  const projectItems = useMemo(
+    () => projectFilter === "all" ? dateItems : dateItems.filter((item) => item.project === projectFilter),
+    [dateItems, projectFilter],
+  );
+  const visibleItems = useMemo(() => {
+    const result = filter === "all" ? [...projectItems] : projectItems.filter((item) => item.decision === filter);
+    return result.sort((left, right) => {
+      const difference = new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
+      return sortOrder === "newest" ? difference : -difference;
+    });
+  }, [filter, projectItems, sortOrder]);
+  const counts = countByStatus(projectItems);
   const feedbackItem = feedback ? items.find((item) => item.id === feedback.itemId) : undefined;
+
+  const openProject = (projectName: string) => {
+    setProjectFilter(projectName);
+    setFilter("all");
+    setView("review");
+  };
+
+  const changeView = (nextView: WorkspaceView) => {
+    if (nextView === "dashboard") setProjectFilter("all");
+    setView(nextView);
+  };
 
   const submitDecision = async (itemId: string, decision: "APPROVE" | "REQUEST_CHANGES" | "REJECT", note?: string) => {
     setBusyItem(itemId);
     try {
       const response = await fetch(`/api/v1/company/posters/${itemId}/reviews`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, feedback: note, idempotencyKey: crypto.randomUUID() }),
       });
       const result = await response.json() as { message?: string };
       if (!response.ok) throw new Error(result.message ?? "Review could not be saved.");
-      const nextDecision: Decision = decision === "APPROVE" ? "approved" : "changes";
+      const nextDecision: Decision = decision === "APPROVE" ? "approved" : decision === "REJECT" ? "rejected" : "changes";
       setItems((current) => current.map((item) => item.id === itemId ? { ...item, decision: nextDecision, comments: item.comments + 1 } : item));
       setFeedback(null);
       setToast(decision === "APPROVE" ? "Poster approved." : "Feedback sent to Rainhopes.");
@@ -200,23 +393,35 @@ export function ReviewApp({ initialItems, companyName, viewerName }: { initialIt
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar view={view} onChange={changeView} />
       <main className="workspace-main">
         <header className="mobile-topbar"><BrandMark /><div className="mobile-top-actions"><PwaInstall /><Bell size={22} /></div></header>
-        <div className="feed-container">
-          <section className="feed-intro"><div><p className="eyebrow">Welcome, {viewerName}</p><h1>Your poster feed</h1><p>{pendingCount} {pendingCount === 1 ? "poster needs" : "posters need"} your attention.</p></div></section>
-          <section className="quick-stats" aria-label="Workspace highlights">
-            <button type="button"><span className="story-ring"><Clock3 size={22} /></span><strong>{pendingCount}</strong><small>Pending</small></button>
-            <button type="button"><span className="story-ring"><Check size={23} /></span><strong>{items.filter((item) => item.decision === "approved").length}</strong><small>Approved</small></button>
-            <button type="button"><span className="story-ring"><RotateCcw size={21} /></span><strong>{items.filter((item) => item.decision === "changes").length}</strong><small>Changes</small></button>
-            <button type="button"><span className="story-ring"><Sparkles size={21} /></span><strong>{items.length}</strong><small>Delivered</small></button>
-          </section>
-          <div className="filter-row"><div className="filter-scroll" role="group" aria-label="Filter poster feed">{filters.map((option) => <button className={filter === option.value ? "filter-chip active" : "filter-chip"} type="button" key={option.value} aria-pressed={filter === option.value} onClick={() => setFilter(option.value)}>{option.label}{option.value === "pending" && pendingCount ? <span>{pendingCount}</span> : null}</button>)}</div><button className="sort-button" type="button">Newest <ChevronDown size={15} /></button></div>
-          <section className="work-feed" aria-live="polite">{visibleItems.length ? visibleItems.map((item) => <WorkCard key={item.id} item={item} busy={busyItem === item.id} onApprove={() => submitDecision(item.id, "APPROVE")} onFeedback={(decision) => setFeedback({ itemId: item.id, decision })} />) : <div className="empty-state"><CheckCircle2 size={34} /><h2>No posters here</h2><p>Posters uploaded for {companyName} will appear here.</p></div>}</section>
-          <footer className="feed-footer"><span>Private workspace secured by ClientLoop</span></footer>
-        </div>
+        {view === "dashboard" ? (
+          <DashboardView projects={initialProjects} items={dateItems} dateRange={dateRange} onDateRange={setDateRange} onOpenProject={openProject} />
+        ) : view === "downloads" ? (
+          <DownloadsView items={projectItems} projects={initialProjects} projectFilter={projectFilter} dateRange={dateRange} onProjectFilter={setProjectFilter} onDateRange={setDateRange} />
+        ) : (
+          <div className="feed-container">
+            <section className="feed-intro"><div><p className="eyebrow">Welcome, {viewerName}</p><h1>{projectFilter === "all" ? "Your poster feed" : projectFilter}</h1><p>{counts.pending} {counts.pending === 1 ? "poster needs" : "posters need"} your attention.</p></div><DateRangeSelect value={dateRange} onChange={setDateRange} /></section>
+            <section className="quick-stats portal-five-stats" aria-label="Workspace highlights">
+              <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><span className="story-ring"><Sparkles size={21} /></span><strong>{counts.all}</strong><small>All</small></button>
+              <button type="button" className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}><span className="story-ring"><Clock3 size={22} /></span><strong>{counts.pending}</strong><small>Pending</small></button>
+              <button type="button" className={filter === "approved" ? "active" : ""} onClick={() => setFilter("approved")}><span className="story-ring"><Check size={23} /></span><strong>{counts.approved}</strong><small>Approved</small></button>
+              <button type="button" className={filter === "changes" ? "active" : ""} onClick={() => setFilter("changes")}><span className="story-ring"><RotateCcw size={21} /></span><strong>{counts.changes}</strong><small>Changes</small></button>
+              <button type="button" className={filter === "rejected" ? "active" : ""} onClick={() => setFilter("rejected")}><span className="story-ring"><X size={21} /></span><strong>{counts.rejected}</strong><small>Rejected</small></button>
+            </section>
+            <div className="portal-toolbar review-toolbar">
+              <label><FolderKanban size={16} /><span className="sr-only">Project</span><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="all">All projects</option>{initialProjects.map((project) => <option value={project.name} key={project.id}>{project.name}</option>)}</select></label>
+              <button className="sort-button" type="button" onClick={() => setSortOrder((order) => order === "newest" ? "oldest" : "newest")}>{sortOrder === "newest" ? "Newest" : "Oldest"}<ChevronDown size={15} /></button>
+            </div>
+            <div className="filter-row"><div className="filter-scroll" role="group" aria-label="Filter poster feed">{filters.map((option) => <button className={filter === option.value ? "filter-chip active" : "filter-chip"} type="button" key={option.value} aria-pressed={filter === option.value} onClick={() => setFilter(option.value)}>{option.label}<span>{counts[option.value]}</span></button>)}</div></div>
+            <section className="work-feed" aria-live="polite">{visibleItems.length ? visibleItems.map((item) => <WorkCard key={item.id} item={item} busy={busyItem === item.id} onApprove={() => submitDecision(item.id, "APPROVE")} onFeedback={(decision) => setFeedback({ itemId: item.id, decision })} />) : <div className="empty-state"><FileImage size={34} /><h2>No posters here</h2><p>No posters match the selected project, period, and status filters.</p></div>}</section>
+            <footer className="feed-footer"><span>Private workspace secured by ClientLoop</span></footer>
+          </div>
+        )}
       </main>
-      <ActivitySummary items={items} companyName={companyName} /><MobileNavigation />
+      <ActivitySummary items={view === "dashboard" ? dateItems : projectItems} companyName={companyName} />
+      <MobileNavigation view={view} onChange={changeView} />
       {feedback && feedbackItem ? <FeedbackSheet item={feedbackItem} decision={feedback.decision} busy={busyItem === feedback.itemId} onClose={() => setFeedback(null)} onSubmit={(note) => submitDecision(feedback.itemId, feedback.decision === "changes" ? "REQUEST_CHANGES" : "REJECT", note)} /> : null}
       {toast ? <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div> : null}
     </div>

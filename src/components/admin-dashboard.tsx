@@ -75,6 +75,7 @@ interface AdminPoster {
 }
 
 type Message = { kind: "success" | "error"; text: string } | null;
+type DateRange = "day" | "week" | "month" | "year" | "all";
 type Panel =
   | { type: "create-company" }
   | { type: "edit-company" }
@@ -82,6 +83,25 @@ type Panel =
   | { type: "edit-project" }
   | { type: "upload"; posterId?: string }
   | null;
+
+const dateRanges: Array<{ value: DateRange; label: string }> = [
+  { value: "day", label: "Daily" },
+  { value: "week", label: "Weekly" },
+  { value: "month", label: "Monthly" },
+  { value: "year", label: "Yearly" },
+  { value: "all", label: "Overall" },
+];
+
+function isInDateRange(value: string, range: DateRange) {
+  if (range === "all") return true;
+  const date = new Date(value);
+  const cutoff = new Date();
+  if (range === "day") cutoff.setHours(0, 0, 0, 0);
+  if (range === "week") cutoff.setDate(cutoff.getDate() - 7);
+  if (range === "month") cutoff.setMonth(cutoff.getMonth() - 1);
+  if (range === "year") cutoff.setFullYear(cutoff.getFullYear() - 1);
+  return date >= cutoff;
+}
 
 const reviewLabels: Record<ReviewDecision, string> = {
   APPROVE: "Approved",
@@ -175,6 +195,7 @@ export function AdminDashboard({
   const [selectedVersionId, setSelectedVersionId] = useState(currentVersion(initialPoster)?.id ?? "");
   const [panel, setPanel] = useState<Panel>(initialCompanies.length ? null : { type: "create-company" });
   const [showPassword, setShowPassword] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>("all");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
 
@@ -184,11 +205,15 @@ export function AdminDashboard({
     [projects, selectedCompanyId],
   );
   const selectedProject = companyProjects.find((project) => project.id === selectedProjectId);
-  const projectPosters = useMemo(
-    () => posters.filter((poster) => poster.projectId === selectedProjectId),
-    [posters, selectedProjectId],
+  const filteredPosters = useMemo(
+    () => posters.filter((poster) => isInDateRange(currentVersion(poster)?.publishedAt ?? poster.createdAt, dateRange)),
+    [dateRange, posters],
   );
-  const selectedPoster = projectPosters.find((poster) => poster.id === selectedPosterId);
+  const projectPosters = useMemo(
+    () => filteredPosters.filter((poster) => poster.projectId === selectedProjectId),
+    [filteredPosters, selectedProjectId],
+  );
+  const selectedPoster = projectPosters.find((poster) => poster.id === selectedPosterId) ?? projectPosters[0];
   const selectedVersion = selectedPoster?.versions.find((version) => version.id === selectedVersionId)
     ?? currentVersion(selectedPoster);
   const uploadPosterTarget = panel?.type === "upload" && panel.posterId
@@ -478,14 +503,21 @@ export function AdminDashboard({
         <BrandMark />
         <div className="admin-sidebar-scroll">
           <div className="admin-sidebar-heading">
-            <span>Companies</span>
+            <span>Companies <em>{companies.length}</em></span>
             <button type="button" onClick={() => setPanel({ type: "create-company" })} aria-label="Add company"><Plus size={16} /></button>
           </div>
+          <label className="admin-range-filter">
+            <Clock3 size={15} />
+            <span>Period</span>
+            <select value={dateRange} onChange={(event) => setDateRange(event.target.value as DateRange)} aria-label="Filter activity period">
+              {dateRanges.map((range) => <option value={range.value} key={range.value}>{range.label}</option>)}
+            </select>
+          </label>
           <nav className="admin-company-nav" aria-label="Companies">
             {companies.map((company) => (
               <button className={company.id === selectedCompanyId ? "active" : ""} type="button" key={company.id} onClick={() => chooseCompany(company.id)}>
                 <span className="admin-company-avatar">{company.name.slice(0, 1).toUpperCase()}</span>
-                <span><strong>{company.name}</strong><small>{company.posterCount} posters</small></span>
+                <span><strong>{company.name}</strong><small>{filteredPosters.filter((poster) => poster.companyId === company.id).length} posters</small></span>
                 <ChevronRight size={16} />
               </button>
             ))}
@@ -494,14 +526,14 @@ export function AdminDashboard({
           {selectedCompany ? (
             <div className="admin-project-nav-wrap">
               <div className="admin-sidebar-heading">
-                <span>Projects</span>
+                <span>Projects <em>{companyProjects.length}</em></span>
                 <button type="button" onClick={() => setPanel({ type: "create-project" })} aria-label="Add project"><FolderPlus size={16} /></button>
               </div>
               <nav className="admin-project-nav" aria-label={`${selectedCompany.name} projects`}>
                 {companyProjects.map((project) => (
                   <button className={project.id === selectedProjectId ? "active" : ""} type="button" key={project.id} onClick={() => chooseProject(project.id)}>
                     <FolderKanban size={17} />
-                    <span><strong>{project.name}</strong><small>{project.posterCount} posters</small></span>
+                    <span><strong>{project.name}</strong><small>{filteredPosters.filter((poster) => poster.projectId === project.id).length} posters</small></span>
                   </button>
                 ))}
                 {!companyProjects.length ? <p>No projects yet</p> : null}
@@ -561,7 +593,7 @@ export function AdminDashboard({
                 <div>
                   <p className="eyebrow">{selectedCompany.name} / Project</p>
                   <h1>{selectedProject.name}</h1>
-                  <p>Track every poster, client response, suggestion, and revision in one place.</p>
+                  <p>Track every poster, client response, suggestion, and revision in one place · {dateRanges.find((range) => range.value === dateRange)?.label}.</p>
                 </div>
                 <div className="admin-header-actions">
                   <button className="admin-subtle-button" type="button" onClick={() => setPanel({ type: "edit-project" })}><Pencil size={16} />Edit project</button>
@@ -586,7 +618,7 @@ export function AdminDashboard({
                         const status = reviewPresentation(version);
                         const StatusIcon = status.icon;
                         return (
-                          <article className={poster.id === selectedPosterId ? "admin-poster-tile selected" : "admin-poster-tile"} key={poster.id}>
+                          <article className={poster.id === selectedPoster?.id ? "admin-poster-tile selected" : "admin-poster-tile"} key={poster.id}>
                             <button className="admin-poster-select" type="button" onClick={() => choosePoster(poster)} aria-label={`Open ${poster.title}`}>
                               <span className="admin-poster-image">
                                 {version ? <img src={version.preview} alt={`${poster.title} version ${version.versionNumber}`} /> : <FileImage size={30} />}
@@ -658,7 +690,7 @@ export function AdminDashboard({
                 <section className="admin-empty-posters">
                   <span><ImagePlus size={29} /></span>
                   <h2>No posters in this project</h2>
-                  <p>Upload a standalone poster now. Later revisions stay attached to that same poster.</p>
+                  <p>{selectedProject.posterCount ? `No poster activity in the ${dateRanges.find((range) => range.value === dateRange)?.label.toLowerCase()} period.` : "Upload a standalone poster now. Later revisions stay attached to that same poster."}</p>
                   <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "upload" })}><Upload size={18} />Upload first poster</button>
                 </section>
               )}

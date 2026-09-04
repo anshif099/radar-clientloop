@@ -98,6 +98,9 @@ npm run auth:bootstrap
 npm run build
 ```
 
+The build script uses Webpack because some shared-hosting Linux images provide
+WebAssembly SWC bindings but cannot load the native Turbopack binary.
+
 If Terminal commands cannot see the environment variables configured in **Setup Node.js App**, create `/home/CPANEL_USER/clientloop-app/.env.production.local` through File Manager using the same values, set its permissions to `600`, run the commands, and keep the file private.
 
 The migration creates all 19 application and Better Auth tables. Do not create those tables manually in phpMyAdmin and do not import the old PostgreSQL migrations.
