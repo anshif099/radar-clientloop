@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, max, ne } from "drizzle-orm";
 import { auth } from "@/auth/server";
 import { authSessions, authUsers } from "@/db/auth-schema";
 import { db, withAgency, withPlatformAdmin } from "@/db/client";
@@ -60,6 +60,32 @@ export interface CompanyPoster {
   preview: string;
   comments: number;
   note: string;
+}
+
+export interface AdminPosterVersion {
+  id: string;
+  versionNumber: number;
+  note: string;
+  publishedAt: string;
+  preview: string;
+  isCurrent: boolean;
+  review: {
+    decision: "APPROVE" | "REQUEST_CHANGES" | "REJECT";
+    reviewerLabel: string;
+    decidedAt: string;
+    feedback: string[];
+  } | null;
+}
+
+export interface AdminPoster {
+  id: string;
+  companyId: string;
+  projectId: string;
+  title: string;
+  status: typeof workItems.$inferSelect.status;
+  createdAt: string;
+  currentVersionNumber: number;
+  versions: AdminPosterVersion[];
 }
 
 export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {
@@ -592,8 +618,274 @@ export async function createPoster(input: {
       aggregateId: item.id,
       payload: { workspaceId: input.workspaceId, versionId: version.id, projectId: project.id },
     });
-    return { id: item.id, assetId: asset.id };
+    return {
+      id: item.id,
+      assetId: asset.id,
+      versionId: version.id,
+      versionNumber: version.versionNumber,
+      title: item.title,
+    };
   });
+}
+
+export async function createPosterVersion(input: {
+  companyId: string;
+  workspaceId: string;
+  projectId: string;
+  posterId: string;
+  note: string;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  actorId: string;
+}) {
+  return withPlatformAdmin(async (transaction) => {
+    const [item] = await transaction
+      .select({ id: workItems.id, title: workItems.title })
+      .from(workItems)
+      .where(
+        and(
+          eq(workItems.id, input.posterId),
+          eq(workItems.agencyId, input.companyId),
+          eq(workItems.workspaceId, input.workspaceId),
+          eq(workItems.divisionId, input.projectId),
+          ne(workItems.status, "ARCHIVED"),
+        ),
+      )
+      .limit(1);
+    if (!item) throw new Error("POSTER_NOT_FOUND");
+
+    const [versionResult] = await transaction
+      .select({ versionNumber: max(workItemVersions.versionNumber) })
+      .from(workItemVersions)
+      .where(
+        and(
+          eq(workItemVersions.agencyId, input.companyId),
+          eq(workItemVersions.workItemId, item.id),
+        ),
+      );
+    const versionNumber = Number(versionResult?.versionNumber ?? 0) + 1;
+    const asset = {
+      id: randomUUID(),
+      agencyId: input.companyId,
+      workspaceId: input.workspaceId,
+      storageKey: input.storageKey,
+      originalName: input.originalName,
+      declaredMimeType: input.mimeType,
+      detectedMimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      status: "READY" as const,
+    };
+    const now = new Date();
+    const version = {
+      id: randomUUID(),
+      agencyId: input.companyId,
+      workItemId: item.id,
+      versionNumber,
+      status: "PUBLISHED" as const,
+      note: input.note || null,
+      publishedAt: now,
+    };
+
+    await transaction.insert(assets).values(asset);
+    await transaction.insert(workItemVersions).values(version);
+    await transaction.insert(versionAssets).values({
+      agencyId: input.companyId,
+      versionId: version.id,
+      assetId: asset.id,
+      purpose: "PREVIEW",
+    });
+    await transaction
+      .update(workItems)
+      .set({
+        currentVersionId: version.id,
+        status: "AWAITING_CLIENT_REVIEW",
+        description: input.note || null,
+        approvedAt: null,
+        updatedAt: now,
+      })
+      .where(and(eq(workItems.agencyId, input.companyId), eq(workItems.id, item.id)));
+    await transaction.insert(auditEvents).values({
+      agencyId: input.companyId,
+      workspaceId: input.workspaceId,
+      actorType: "SUPER_ADMIN",
+      actorId: input.actorId,
+      action: "POSTER_VERSION_PUBLISHED",
+      resourceType: "WORK_ITEM",
+      resourceId: item.id,
+      metadata: { version: versionNumber, assetId: asset.id, projectId: input.projectId },
+    });
+    await transaction.insert(outboxEvents).values({
+      agencyId: input.companyId,
+      eventType: "POSTER_VERSION_PUBLISHED",
+      aggregateType: "WORK_ITEM",
+      aggregateId: item.id,
+      payload: {
+        workspaceId: input.workspaceId,
+        versionId: version.id,
+        projectId: input.projectId,
+        version: versionNumber,
+      },
+    });
+
+    return {
+      id: item.id,
+      assetId: asset.id,
+      versionId: version.id,
+      versionNumber,
+      title: item.title,
+    };
+  });
+}
+
+export async function listPostersForAdmin(): Promise<AdminPoster[]> {
+  const rows = await withPlatformAdmin((transaction) =>
+    transaction
+      .select({
+        id: workItems.id,
+        companyId: workItems.agencyId,
+        projectId: workItems.divisionId,
+        title: workItems.title,
+        status: workItems.status,
+        currentVersionId: workItems.currentVersionId,
+        createdAt: workItems.createdAt,
+        versionId: workItemVersions.id,
+        versionNumber: workItemVersions.versionNumber,
+        versionNote: workItemVersions.note,
+        publishedAt: workItemVersions.publishedAt,
+        assetId: assets.id,
+        reviewId: reviewDecisions.id,
+        reviewDecision: reviewDecisions.decision,
+        reviewerLabel: reviewDecisions.reviewerLabel,
+        decidedAt: reviewDecisions.decidedAt,
+        feedbackId: feedbackEntries.id,
+        feedbackText: feedbackEntries.textContent,
+      })
+      .from(workItems)
+      .innerJoin(agencies, eq(agencies.id, workItems.agencyId))
+      .innerJoin(
+        workItemVersions,
+        and(
+          eq(workItemVersions.agencyId, workItems.agencyId),
+          eq(workItemVersions.workItemId, workItems.id),
+        ),
+      )
+      .leftJoin(
+        versionAssets,
+        and(
+          eq(versionAssets.agencyId, workItems.agencyId),
+          eq(versionAssets.versionId, workItemVersions.id),
+          eq(versionAssets.purpose, "PREVIEW"),
+        ),
+      )
+      .leftJoin(
+        assets,
+        and(
+          eq(assets.agencyId, workItems.agencyId),
+          eq(assets.id, versionAssets.assetId),
+          eq(assets.status, "READY"),
+        ),
+      )
+      .leftJoin(
+        reviewDecisions,
+        and(
+          eq(reviewDecisions.agencyId, workItems.agencyId),
+          eq(reviewDecisions.versionId, workItemVersions.id),
+        ),
+      )
+      .leftJoin(
+        feedbackEntries,
+        and(
+          eq(feedbackEntries.agencyId, workItems.agencyId),
+          eq(feedbackEntries.reviewDecisionId, reviewDecisions.id),
+        ),
+      )
+      .where(eq(agencies.status, "ACTIVE"))
+      .orderBy(
+        desc(workItems.createdAt),
+        desc(workItemVersions.versionNumber),
+        desc(reviewDecisions.decidedAt),
+      ),
+  );
+
+  type MutableAdminPoster = AdminPoster & { versionIndex: Map<string, AdminPosterVersion> };
+  const posterIndex = new Map<string, MutableAdminPoster>();
+
+  for (const row of rows) {
+    if (!row.projectId || !row.assetId) continue;
+    let poster = posterIndex.get(row.id);
+    if (!poster) {
+      poster = {
+        id: row.id,
+        companyId: row.companyId,
+        projectId: row.projectId,
+        title: row.title,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        currentVersionNumber: 0,
+        versions: [],
+        versionIndex: new Map(),
+      };
+      posterIndex.set(row.id, poster);
+    }
+
+    let version = poster.versionIndex.get(row.versionId);
+    if (!version) {
+      version = {
+        id: row.versionId,
+        versionNumber: row.versionNumber,
+        note: row.versionNote ?? "",
+        publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
+        preview: `/api/v1/admin/assets/${row.assetId}`,
+        isCurrent: row.versionId === row.currentVersionId,
+        review: row.reviewId && row.reviewDecision && row.reviewerLabel && row.decidedAt
+          ? {
+              decision: row.reviewDecision,
+              reviewerLabel: row.reviewerLabel,
+              decidedAt: row.decidedAt.toISOString(),
+              feedback: [],
+            }
+          : null,
+      };
+      poster.versions.push(version);
+      poster.versionIndex.set(row.versionId, version);
+      if (version.isCurrent) poster.currentVersionNumber = version.versionNumber;
+    }
+
+    if (row.feedbackId && row.feedbackText && version.review) {
+      if (!version.review.feedback.includes(row.feedbackText)) {
+        version.review.feedback.push(row.feedbackText);
+      }
+    }
+  }
+
+  return [...posterIndex.values()].map(({ versionIndex: _versionIndex, ...poster }) => {
+    if (!poster.currentVersionNumber) poster.currentVersionNumber = poster.versions[0]?.versionNumber ?? 0;
+    return poster;
+  });
+}
+
+export async function getAdminAsset(assetId: string) {
+  const result = await withPlatformAdmin((transaction) =>
+    transaction
+      .select({
+        storageKey: assets.storageKey,
+        originalName: assets.originalName,
+        mimeType: assets.detectedMimeType,
+      })
+      .from(assets)
+      .innerJoin(agencies, eq(agencies.id, assets.agencyId))
+      .where(
+        and(
+          eq(assets.id, assetId),
+          eq(assets.status, "READY"),
+          eq(agencies.status, "ACTIVE"),
+        ),
+      )
+      .limit(1),
+  );
+  return result[0] ?? null;
 }
 
 function itemDecision(status: typeof workItems.$inferSelect.status): CompanyPoster["decision"] {

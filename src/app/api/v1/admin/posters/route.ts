@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireRequestSuperAdmin } from "@/auth/server";
-import { createPoster, getCompanyForAdmin, getProjectForAdmin } from "@/data/companies";
+import {
+  createPoster,
+  createPosterVersion,
+  getCompanyForAdmin,
+  getProjectForAdmin,
+} from "@/data/companies";
 import { deleteObject, putObject } from "@/storage/filesystem";
 
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -37,6 +42,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const companyId = value(form, "companyId");
     const projectId = value(form, "projectId");
+    const posterId = value(form, "posterId");
     const title = value(form, "title");
     const note = value(form, "note");
     const file = form.get("file");
@@ -44,8 +50,10 @@ export async function POST(request: Request) {
     if (
       !z.uuid().safeParse(companyId).success
       || !z.uuid().safeParse(projectId).success
-      || !title
+      || (!posterId && !title)
       || title.length > 220
+      || note.length > 3000
+      || (posterId && !z.uuid().safeParse(posterId).success)
     ) {
       return Response.json({ message: "Company, project, and poster title are required." }, { status: 400 });
     }
@@ -69,24 +77,26 @@ export async function POST(request: Request) {
     if (!detected || detected.mimeType !== file.type) {
       return Response.json({ message: "The uploaded file content is not a valid supported image." }, { status: 400 });
     }
-    storageKey = `agencies/${company.id}/projects/${project.id}/posters/${randomUUID()}.${detected.extension}`;
+    storageKey = `agencies/${company.id}/projects/${project.id}/posters/${posterId || randomUUID()}/${randomUUID()}.${detected.extension}`;
     await putObject({
       key: storageKey,
       bytes,
       contentType: detected.mimeType,
     });
-    const poster = await createPoster({
+    const fileDetails = {
       companyId: company.id,
       workspaceId: company.workspaceId,
       projectId: project.id,
-      title,
       note,
       storageKey,
       originalName: file.name.slice(0, 255),
       mimeType: detected.mimeType,
       sizeBytes: file.size,
       actorId: session.user.id,
-    });
+    };
+    const poster = posterId
+      ? await createPosterVersion({ ...fileDetails, posterId })
+      : await createPoster({ ...fileDetails, title });
     return Response.json({ poster }, { status: 201 });
   } catch (error) {
     if (storageKey) await deleteObject(storageKey).catch(() => undefined);
@@ -95,6 +105,9 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === "FORBIDDEN") {
       return Response.json({ message: "Super Admin access is required." }, { status: 403 });
+    }
+    if (error instanceof Error && error.message === "POSTER_NOT_FOUND") {
+      return Response.json({ message: "Poster not found in the selected project." }, { status: 404 });
     }
     console.error("Poster upload failed", error);
     if (error instanceof Error && error.message.startsWith("Poster storage is not configured")) {
