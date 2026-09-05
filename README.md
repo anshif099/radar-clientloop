@@ -13,7 +13,20 @@ The upload dialog includes Image, Video, PDF, Word, Excel, and Website link opti
 - Excel: XLS, XLSX (20 MB), with a download card.
 - Websites: HTTP/HTTPS URLs up to 2,048 characters, opened in a new tab through an authenticated asset route.
 
-All types use the same review and version history. Website URLs are stored as private URI-list assets; no database migration is needed. Downloads serve the original file bytes. Set the hosting proxy's request body limit above 100 MB (including multipart overhead) to allow the maximum video upload size.
+All types use the same review and version history. Website URLs are stored as private URI-list assets. Downloads serve the original file bytes. Set the hosting proxy's request body limit above 100 MB (including multipart overhead) to allow the maximum video upload size.
+
+## Categories and subcategories
+
+Uploads require a category and one of its subcategories, independently of file type:
+
+- Graphic Design: Logo Branding, Package Designs, Social Media Creatives, Digital Ad Banners, OOH Designs, Leaflets, Brochures, Magazines.
+- UI/UX: UI/UX Wireframes, Web/App Prototypes, Web/App Mockups.
+- Video: Video Storyboards, Visual Scripts, Video Mockups.
+- Content Design: Copy Articles, Blog Copy.
+
+Category and subcategory filters are available in the admin project view and the company Review, Dashboard, and Downloads views. They combine with the existing project, date, and status filters. Choosing a different category resets the subcategory filter. Classification belongs to the work item; uploading a revision prefills its saved values and allows changing them.
+
+**Before starting the updated app, run `npm run db:migrate` against the application's MySQL/MariaDB database.** Migration `0003_work_categories.sql` adds nullable category and subcategory columns. Existing items remain available under All categories and Uncategorized until classified when uploading a new version.
 
 ## Data and security model
 

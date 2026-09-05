@@ -18,6 +18,8 @@ function formRequest(type: string, file?: File) {
   form.set("projectId", projectId);
   form.set("title", "Client review");
   form.set("contentType", type);
+  form.set("category", "graphic-design");
+  form.set("subcategory", "logo-branding");
   if (file) form.set("file", file);
   return form;
 }
@@ -62,8 +64,10 @@ it("publishes a link revision against the existing item", async () => {
   const form = formRequest("website");
   form.set("posterId", posterId);
   form.set("websiteUrl", "https://example.com/v2");
+  form.set("category", "ui-ux");
+  form.set("subcategory", "web-app-prototypes");
   expect((await POST(request(form))).status).toBe(201);
-  expect(createPosterVersion).toHaveBeenCalledWith(expect.objectContaining({ posterId, mimeType: "text/uri-list" }));
+  expect(createPosterVersion).toHaveBeenCalledWith(expect.objectContaining({ posterId, mimeType: "text/uri-list", category: "ui-ux", subcategory: "web-app-prototypes" }));
   expect(createPoster).not.toHaveBeenCalled();
 });
 it("cleans up the new stored asset if the target version cannot be found", async () => {
@@ -78,4 +82,29 @@ it("requires admin authorization before publishing any content", async () => {
   vi.mocked(requireRequestSuperAdmin).mockRejectedValue(new Error("FORBIDDEN"));
   expect((await POST(request(formRequest("website")))).status).toBe(403);
   expect(putObject).not.toHaveBeenCalled();
+});
+
+it("saves the selected category independently of the uploaded file type", async () => {
+  const form = formRequest("pdf", new File(["%PDF-1.7"], "storyboard.pdf"));
+  form.set("category", "video");
+  form.set("subcategory", "video-storyboards");
+  const response = await POST(request(form));
+  expect(response.status).toBe(201);
+  expect(createPoster).toHaveBeenCalledWith(expect.objectContaining({ category: "video", subcategory: "video-storyboards", mimeType: "application/pdf" }));
+  expect((await response.json()).poster).toMatchObject({ category: "video", subcategory: "video-storyboards", contentType: "pdf" });
+});
+
+it.each([
+  ["", ""],
+  ["graphic-design", ""],
+  ["graphic-design", "video-storyboards"],
+  ["other", "logo-branding"],
+])("rejects invalid classification %s / %s before storing content", async (category, subcategory) => {
+  const form = formRequest("pdf", new File(["%PDF-1.7"], "design.pdf"));
+  form.set("category", category);
+  form.set("subcategory", subcategory);
+  const response = await POST(request(form));
+  expect(response.status).toBe(400);
+  expect(putObject).not.toHaveBeenCalled();
+  expect(createPoster).not.toHaveBeenCalled();
 });

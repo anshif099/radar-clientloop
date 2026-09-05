@@ -31,6 +31,8 @@ import { authClient } from "@/auth/client";
 import { assetActionHref, type ContentType } from "@/domain/asset-types";
 import { AssetPreview } from "./asset-preview";
 import { UploadContentFields } from "./upload-content-fields";
+import { CategoryFilters, UploadCategoryFields } from "./work-categories";
+import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
 
 interface Company {
   id: string;
@@ -69,7 +71,7 @@ interface PosterVersion {
   } | null;
 }
 
-interface AdminPoster {
+interface AdminPoster extends CategorizedWork {
   id: string;
   companyId: string;
   projectId: string;
@@ -202,6 +204,7 @@ export function AdminDashboard({
   const [panel, setPanel] = useState<Panel>(initialCompanies.length ? null : { type: "create-company" });
   const [showPassword, setShowPassword] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [categoryFilter, setCategoryFilter] = useState(allCategories);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
 
@@ -212,8 +215,8 @@ export function AdminDashboard({
   );
   const selectedProject = companyProjects.find((project) => project.id === selectedProjectId);
   const filteredPosters = useMemo(
-    () => posters.filter((poster) => isInDateRange(currentVersion(poster)?.publishedAt ?? poster.createdAt, dateRange)),
-    [dateRange, posters],
+    () => posters.filter((poster) => isInDateRange(currentVersion(poster)?.publishedAt ?? poster.createdAt, dateRange) && matchesCategoryFilter(poster, categoryFilter)),
+    [dateRange, posters, categoryFilter],
   );
   const projectPosters = useMemo(
     () => filteredPosters.filter((poster) => poster.projectId === selectedProjectId),
@@ -447,7 +450,7 @@ export function AdminDashboard({
       const response = await fetch("/api/v1/admin/posters", { method: "POST", body: form });
       if (!response.ok) throw new Error(await responseMessage(response));
       const { poster } = await response.json() as {
-        poster: { id: string; assetId: string; versionId: string; versionNumber: number; title: string; contentType: ContentType; originalName: string };
+        poster: { id: string; assetId: string; versionId: string; versionNumber: number; title: string; contentType: ContentType; originalName: string } & CategorizedWork;
       };
       const note = String(form.get("note") ?? "");
       const version: PosterVersion = {
@@ -466,6 +469,8 @@ export function AdminDashboard({
         setPosters((current) => current.map((item) => item.id === uploadPosterTarget.id
           ? {
               ...item,
+              category: poster.category,
+              subcategory: poster.subcategory,
               status: "AWAITING_CLIENT_REVIEW",
               currentVersionNumber: version.versionNumber,
               versions: [version, ...item.versions.map((entry) => ({ ...entry, isCurrent: false }))],
@@ -480,6 +485,8 @@ export function AdminDashboard({
           companyId: selectedCompany.id,
           projectId: selectedProject.id,
           title: poster.title,
+          category: poster.category,
+          subcategory: poster.subcategory,
           status: "AWAITING_CLIENT_REVIEW",
           createdAt: new Date().toISOString(),
           currentVersionNumber: 1,
@@ -496,6 +503,7 @@ export function AdminDashboard({
         setSelectedVersionId(version.id);
         setMessage({ kind: "success", text: `${created.title} was published for review.` });
       }
+      if (!matchesCategoryFilter(poster, categoryFilter)) setCategoryFilter(allCategories);
       setPanel(null);
       formElement.reset();
     } catch (error) {
@@ -609,6 +617,7 @@ export function AdminDashboard({
                 </div>
               </section>
 
+              <CategoryFilters value={categoryFilter} onChange={setCategoryFilter} />
               <section className="admin-stat-grid" aria-label="Project review summary">
                 <div><span className="stat-icon neutral"><FileImage size={19} /></span><p><strong>{projectStats.total}</strong><small>Total posters</small></p></div>
                 <div><span className="stat-icon pending"><Clock3 size={19} /></span><p><strong>{projectStats.pending}</strong><small>Awaiting review</small></p></div>
@@ -633,7 +642,7 @@ export function AdminDashboard({
                                 <span className={`admin-status-pill ${status.className}`}><StatusIcon size={13} />{status.label}</span>
                               </span>
                               <span className="admin-poster-meta">
-                                <span><strong>{poster.title}</strong><small>Version {poster.currentVersionNumber}</small></span>
+                                <span><strong>{poster.title}</strong><small>Version {poster.currentVersionNumber}</small><small>{workClassificationLabel(poster)}</small></span>
                                 <ChevronRight size={17} />
                               </span>
                             </button>
@@ -654,6 +663,7 @@ export function AdminDashboard({
                           <button className="admin-icon-button" type="button" onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })} aria-label="Upload new version"><Upload size={18} /></button>
                         </header>
                         <div className="admin-inspector-preview"><AssetPreview src={selectedVersion.preview} title={`${selectedPoster.title} version ${selectedVersion.versionNumber}`} contentType={selectedVersion.contentType} originalName={selectedVersion.originalName} /></div>
+                        <p className="work-classification">{workClassificationLabel(selectedPoster)}</p>
                         <div className="admin-version-summary">
                           <div><span>Version</span><strong>v{selectedVersion.versionNumber}{selectedVersion.isCurrent ? " · Current" : ""}</strong></div>
                           <div><span>Published</span><strong>{formatDate(selectedVersion.publishedAt)}</strong></div>
@@ -698,7 +708,7 @@ export function AdminDashboard({
                 <section className="admin-empty-posters">
                   <span><ImagePlus size={29} /></span>
                   <h2>No posters in this project</h2>
-                  <p>{selectedProject.posterCount ? `No poster activity in the ${dateRanges.find((range) => range.value === dateRange)?.label.toLowerCase()} period.` : "Upload a standalone poster now. Later revisions stay attached to that same poster."}</p>
+                  <p>{selectedProject.posterCount ? "No posters match the selected period, category, and subcategory." : "Upload a standalone poster now. Later revisions stay attached to that same poster."}</p>
                   <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "upload" })}><Upload size={18} />Upload first poster</button>
                 </section>
               )}
@@ -762,6 +772,7 @@ export function AdminDashboard({
               <label>Title<input name="title" maxLength={220} placeholder="Give this item a clear name" autoFocus required /></label>
             )}
             <label>Upload note<textarea name="note" maxLength={3000} rows={3} placeholder={uploadPosterTarget ? "What changed in this version?" : "Optional context for the client"} /></label>
+            <UploadCategoryFields key={`category-${uploadPosterTarget?.id ?? "new"}`} initialValue={uploadPosterTarget} disabled={busy} />
             <UploadContentFields key={uploadPosterTarget?.id ?? "new"} initialType={currentVersion(uploadPosterTarget)?.contentType} disabled={busy} />
             {message?.kind === "error" ? <p className="upload-error" role="alert">{message.text}</p> : null}
             {!posterStorageConfigured ? <p className="storage-warning">Poster storage is not configured. Add UPLOAD_ROOT before uploading.</p> : null}

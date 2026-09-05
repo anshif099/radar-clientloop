@@ -29,6 +29,8 @@ import { authClient } from "@/auth/client";
 import { PwaInstall } from "./pwa-install";
 import { AssetPreview } from "./asset-preview";
 import { assetActionHref, type ContentType } from "@/domain/asset-types";
+import { CategoryFilters } from "./work-categories";
+import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
 
 export type Decision = "pending" | "approved" | "changes" | "rejected";
 type Filter = "all" | Decision;
@@ -36,7 +38,7 @@ type WorkspaceView = "review" | "dashboard" | "downloads";
 type DateRange = "day" | "week" | "month" | "year" | "all";
 type SortOrder = "newest" | "oldest";
 
-export interface ReviewWorkItem {
+export interface ReviewWorkItem extends CategorizedWork {
   id: string;
   title: string;
   project: string;
@@ -220,6 +222,7 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         <span className={`preview-status status-pill status-${item.decision}`}>{statusCopy[item.decision]}</span>
       </div>
       <div className="work-body">
+        <p className="work-classification">{workClassificationLabel(item)}</p>
         <div className="engagement-row"><span><MessageCircleMore size={18} /> {item.comments} reviews</span></div>
         {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
         {item.decision === "approved" ? (
@@ -252,12 +255,13 @@ function DateRangeSelect({ value, onChange }: { value: DateRange; onChange: (ran
   );
 }
 
-function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject }: {
+function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject, categoryFilters }: {
   projects: ReviewProject[];
   items: ReviewWorkItem[];
   dateRange: DateRange;
   onDateRange: (range: DateRange) => void;
   onOpenProject: (projectName: string) => void;
+  categoryFilters: React.ReactNode;
 }) {
   const counts = countByStatus(items);
   return (
@@ -266,6 +270,7 @@ function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject 
         <div><p className="eyebrow">Workspace overview</p><h1>Dashboard</h1><p>Review progress across all your projects.</p></div>
         <DateRangeSelect value={dateRange} onChange={onDateRange} />
       </section>
+      {categoryFilters}
       <section className="portal-summary-grid" aria-label="Poster counts">
         <div><span className="portal-summary-icon all"><Sparkles size={20} /></span><p><strong>{counts.all}</strong><small>All posters</small></p></div>
         <div><span className="portal-summary-icon pending"><Clock3 size={20} /></span><p><strong>{counts.pending}</strong><small>Pending</small></p></div>
@@ -283,7 +288,7 @@ function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject 
               return (
                 <button type="button" key={project.id} onClick={() => onOpenProject(project.name)}>
                   <span className="portal-project-icon"><FolderKanban size={22} /></span>
-                  <span className="portal-project-copy"><strong>{project.name}</strong><small>{projectCounts.all} posters in this period</small></span>
+                  <span className="portal-project-copy"><strong>{project.name}</strong><small>{projectCounts.all} posters matching filters</small></span>
                   <span className="portal-project-counts"><em>{projectCounts.pending} pending</em><em>{projectCounts.approved} approved</em></span>
                   <ArrowRight size={18} />
                 </button>
@@ -296,12 +301,13 @@ function DashboardView({ projects, items, dateRange, onDateRange, onOpenProject 
   );
 }
 
-function DownloadsView({ items, projects, projectFilter, dateRange, onProjectFilter, onDateRange }: {
+function DownloadsView({ items, projects, projectFilter, dateRange, onProjectFilter, onDateRange, categoryFilters }: {
   items: ReviewWorkItem[];
   projects: ReviewProject[];
   projectFilter: string;
   dateRange: DateRange;
   onProjectFilter: (project: string) => void;
+  categoryFilters: React.ReactNode;
   onDateRange: (range: DateRange) => void;
 }) {
   const downloads = items.filter((item) => item.decision === "approved");
@@ -315,12 +321,13 @@ function DownloadsView({ items, projects, projectFilter, dateRange, onProjectFil
         <label><FolderKanban size={16} /><span className="sr-only">Project</span><select value={projectFilter} onChange={(event) => onProjectFilter(event.target.value)}><option value="all">All projects</option>{projects.map((project) => <option value={project.name} key={project.id}>{project.name}</option>)}</select></label>
         <span>{downloads.length} approved {downloads.length === 1 ? "item" : "items"}</span>
       </div>
+      {categoryFilters}
       {downloads.length ? (
         <section className="portal-download-grid">
           {downloads.map((item) => (
             <article key={item.id}>
               <div><AssetPreview src={item.preview} title={item.title} contentType={item.contentType} compact /><span className="download-status"><CheckCircle2 size={14} />Approved</span></div>
-              <section><div><strong>{item.title}</strong><small>{item.project} · Version {item.version}</small></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={`${item.contentType === "website" ? "Open" : "Download"} ${item.title}`}>{item.contentType === "website" ? <ExternalLink size={18} /> : <Download size={18} />}</a></section>
+              <section><div><strong>{item.title}</strong><small>{item.project} · Version {item.version}</small><small>{workClassificationLabel(item)}</small></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={`${item.contentType === "website" ? "Open" : "Download"} ${item.title}`}>{item.contentType === "website" ? <ExternalLink size={18} /> : <Download size={18} />}</a></section>
             </article>
           ))}
         </section>
@@ -340,6 +347,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
   const [filter, setFilter] = useState<Filter>("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [categoryFilter, setCategoryFilter] = useState(allCategories);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [feedback, setFeedback] = useState<{ itemId: string; decision: "changes" | "rejected" } | null>(null);
   const [busyItem, setBusyItem] = useState<string | null>(null);
@@ -349,9 +357,13 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
     () => items.filter((item) => isInDateRange(item.publishedAt, dateRange)),
     [dateRange, items],
   );
+  const categoryItems = useMemo(
+    () => dateItems.filter((item) => matchesCategoryFilter(item, categoryFilter)),
+    [dateItems, categoryFilter],
+  );
   const projectItems = useMemo(
-    () => projectFilter === "all" ? dateItems : dateItems.filter((item) => item.project === projectFilter),
-    [dateItems, projectFilter],
+    () => projectFilter === "all" ? categoryItems : categoryItems.filter((item) => item.project === projectFilter),
+    [categoryItems, projectFilter],
   );
   const visibleItems = useMemo(() => {
     const result = filter === "all" ? [...projectItems] : projectItems.filter((item) => item.decision === filter);
@@ -362,6 +374,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
   }, [filter, projectItems, sortOrder]);
   const counts = countByStatus(projectItems);
   const feedbackItem = feedback ? items.find((item) => item.id === feedback.itemId) : undefined;
+  const categoryFilters = <CategoryFilters value={categoryFilter} onChange={setCategoryFilter} />;
 
   const openProject = (projectName: string) => {
     setProjectFilter(projectName);
@@ -402,9 +415,9 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
       <main className="workspace-main">
         <header className="mobile-topbar"><BrandMark /><div className="mobile-top-actions"><PwaInstall /><Bell size={22} /></div></header>
         {view === "dashboard" ? (
-          <DashboardView projects={initialProjects} items={dateItems} dateRange={dateRange} onDateRange={setDateRange} onOpenProject={openProject} />
+          <DashboardView projects={initialProjects} items={categoryItems} dateRange={dateRange} onDateRange={setDateRange} onOpenProject={openProject} categoryFilters={categoryFilters} />
         ) : view === "downloads" ? (
-          <DownloadsView items={projectItems} projects={initialProjects} projectFilter={projectFilter} dateRange={dateRange} onProjectFilter={setProjectFilter} onDateRange={setDateRange} />
+          <DownloadsView items={projectItems} projects={initialProjects} projectFilter={projectFilter} dateRange={dateRange} onProjectFilter={setProjectFilter} onDateRange={setDateRange} categoryFilters={categoryFilters} />
         ) : (
           <div className="feed-container">
             <section className="feed-intro"><div><p className="eyebrow">Welcome, {viewerName}</p><h1>{projectFilter === "all" ? "Your poster feed" : projectFilter}</h1><p>{counts.pending} {counts.pending === 1 ? "poster needs" : "posters need"} your attention.</p></div><DateRangeSelect value={dateRange} onChange={setDateRange} /></section>
@@ -419,13 +432,14 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
               <label><FolderKanban size={16} /><span className="sr-only">Project</span><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}><option value="all">All projects</option>{initialProjects.map((project) => <option value={project.name} key={project.id}>{project.name}</option>)}</select></label>
               <button className="sort-button" type="button" onClick={() => setSortOrder((order) => order === "newest" ? "oldest" : "newest")}>{sortOrder === "newest" ? "Newest" : "Oldest"}<ChevronDown size={15} /></button>
             </div>
+            {categoryFilters}
             <div className="filter-row"><div className="filter-scroll" role="group" aria-label="Filter poster feed">{filters.map((option) => <button className={filter === option.value ? "filter-chip active" : "filter-chip"} type="button" key={option.value} aria-pressed={filter === option.value} onClick={() => setFilter(option.value)}>{option.label}<span>{counts[option.value]}</span></button>)}</div></div>
-            <section className="work-feed" aria-live="polite">{visibleItems.length ? visibleItems.map((item) => <WorkCard key={item.id} item={item} busy={busyItem === item.id} onApprove={() => submitDecision(item.id, "APPROVE")} onFeedback={(decision) => setFeedback({ itemId: item.id, decision })} />) : <div className="empty-state"><FileImage size={34} /><h2>No posters here</h2><p>No posters match the selected project, period, and status filters.</p></div>}</section>
+            <section className="work-feed" aria-live="polite">{visibleItems.length ? visibleItems.map((item) => <WorkCard key={item.id} item={item} busy={busyItem === item.id} onApprove={() => submitDecision(item.id, "APPROVE")} onFeedback={(decision) => setFeedback({ itemId: item.id, decision })} />) : <div className="empty-state"><FileImage size={34} /><h2>No posters here</h2><p>No posters match the selected project, period, category, subcategory, and status filters.</p></div>}</section>
             <footer className="feed-footer"><span>Private workspace secured by ClientLoop</span></footer>
           </div>
         )}
       </main>
-      <ActivitySummary items={view === "dashboard" ? dateItems : projectItems} companyName={companyName} />
+      <ActivitySummary items={view === "dashboard" ? categoryItems : projectItems} companyName={companyName} />
       <MobileNavigation view={view} onChange={changeView} />
       {feedback && feedbackItem ? <FeedbackSheet item={feedbackItem} decision={feedback.decision} busy={busyItem === feedback.itemId} onClose={() => setFeedback(null)} onSubmit={(note) => submitDecision(feedback.itemId, feedback.decision === "changes" ? "REQUEST_CHANGES" : "REJECT", note)} /> : null}
       {toast ? <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div> : null}

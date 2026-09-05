@@ -166,6 +166,8 @@ export const workItems = mysqlTable(
     divisionId: uuid("division_id").references(() => divisions.id),
     ownerUserId: uuid("owner_user_id").references(() => users.id),
     title: varchar("title", { length: 220 }).notNull(),
+    category: varchar("category", { length: 80 }),
+    subcategory: varchar("subcategory", { length: 100 }),
     description: text("description"),
     status: mysqlEnum("status", workItemStatuses).notNull().default("DRAFT"),
     currentVersionId: uuid("current_version_id"),

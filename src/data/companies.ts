@@ -23,6 +23,7 @@ import {
 } from "@/db/schema";
 import { toSlug } from "@/lib/slug";
 import { contentTypeFromMime, type ContentType } from "@/domain/asset-types";
+import type { CategorizedWork, WorkClassification } from "@/domain/work-categories";
 
 export interface CompanyContext {
   agencyId: string;
@@ -51,7 +52,7 @@ export interface ProjectSummary {
   createdAt: Date;
 }
 
-export interface CompanyPoster {
+export interface CompanyPoster extends CategorizedWork {
   id: string;
   title: string;
   project: string;
@@ -89,7 +90,7 @@ export interface AdminPosterVersion {
   } | null;
 }
 
-export interface AdminPoster {
+export interface AdminPoster extends CategorizedWork {
   id: string;
   companyId: string;
   projectId: string;
@@ -560,7 +561,7 @@ export async function createPoster(input: {
   mimeType: string;
   sizeBytes: number;
   actorId: string;
-}) {
+} & WorkClassification) {
   return withPlatformAdmin(async (transaction) => {
     const [project] = await transaction
       .select({ id: divisions.id })
@@ -588,6 +589,8 @@ export async function createPoster(input: {
       workspaceId: input.workspaceId,
       divisionId: project.id,
       title: input.title,
+      category: input.category,
+      subcategory: input.subcategory,
       description: input.note || null,
       status: "AWAITING_CLIENT_REVIEW" as const,
       firstPublishedAt: now,
@@ -621,7 +624,7 @@ export async function createPoster(input: {
       action: "POSTER_PUBLISHED",
       resourceType: "WORK_ITEM",
       resourceId: item.id,
-      metadata: { version: 1, assetId: asset.id, projectId: project.id },
+      metadata: { version: 1, assetId: asset.id, projectId: project.id, category: input.category, subcategory: input.subcategory },
     });
     await transaction.insert(outboxEvents).values({
       agencyId: input.companyId,
@@ -651,7 +654,7 @@ export async function createPosterVersion(input: {
   mimeType: string;
   sizeBytes: number;
   actorId: string;
-}) {
+} & WorkClassification) {
   return withPlatformAdmin(async (transaction) => {
     const [item] = await transaction
       .select({ id: workItems.id, title: workItems.title })
@@ -714,6 +717,8 @@ export async function createPosterVersion(input: {
         currentVersionId: version.id,
         status: "AWAITING_CLIENT_REVIEW",
         description: input.note || null,
+        category: input.category,
+        subcategory: input.subcategory,
         approvedAt: null,
         updatedAt: now,
       })
@@ -726,7 +731,7 @@ export async function createPosterVersion(input: {
       action: "POSTER_VERSION_PUBLISHED",
       resourceType: "WORK_ITEM",
       resourceId: item.id,
-      metadata: { version: versionNumber, assetId: asset.id, projectId: input.projectId },
+      metadata: { version: versionNumber, assetId: asset.id, projectId: input.projectId, category: input.category, subcategory: input.subcategory },
     });
     await transaction.insert(outboxEvents).values({
       agencyId: input.companyId,
@@ -759,6 +764,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         companyId: workItems.agencyId,
         projectId: workItems.divisionId,
         title: workItems.title,
+        category: workItems.category,
+        subcategory: workItems.subcategory,
         status: workItems.status,
         currentVersionId: workItems.currentVersionId,
         createdAt: workItems.createdAt,
@@ -835,6 +842,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         companyId: row.companyId,
         projectId: row.projectId,
         title: row.title,
+        category: row.category,
+        subcategory: row.subcategory,
         status: row.status,
         createdAt: row.createdAt.toISOString(),
         currentVersionNumber: 0,
@@ -953,6 +962,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
       .select({
         id: workItems.id,
         title: workItems.title,
+        category: workItems.category,
+        subcategory: workItems.subcategory,
         project: divisions.name,
         publishedAt: workItemVersions.publishedAt,
         version: workItemVersions.versionNumber,
@@ -1004,6 +1015,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
       )
       .groupBy(
         workItems.id,
+        workItems.category,
+        workItems.subcategory,
         divisions.name,
         workItemVersions.publishedAt,
         workItemVersions.versionNumber,
@@ -1016,6 +1029,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
+      category: row.category,
+      subcategory: row.subcategory,
       project: row.project ?? "Unassigned",
       publishedAt: (row.publishedAt ?? new Date()).toISOString(),
       version: row.version,

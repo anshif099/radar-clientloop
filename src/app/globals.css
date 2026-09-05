@@ -1862,6 +1862,70 @@ label:has(input:focus-visible) {
   line-height: 1.5;
 }
 
+.upload-category-fields,
+.category-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.category-filters {
+  margin-bottom: 18px;
+}
+
+.category-filters label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.category-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.category-filters select:disabled,
+.upload-category-fields select:disabled {
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.upload-category-fields > label,
+.upload-category-fields select {
+  min-width: 0;
+}
+
+.work-classification {
+  margin: 0 0 12px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.admin-inspector-preview + .work-classification {
+  margin-top: 12px;
+}
+
+@media (max-width: 480px) {
+  .upload-category-fields,
+  .category-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .work-card:hover .preview-frame img {
   transform: scale(1.008);
 }

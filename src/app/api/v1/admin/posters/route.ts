@@ -10,6 +10,7 @@ import {
 import { deleteObject, putObject } from "@/storage/filesystem";
 import { contentTypeOptions, isContentType, normalizeWebsiteUrl, websiteMimeType } from "@/domain/asset-types";
 import { detectUploadType, validateUploadSize } from "@/domain/asset-upload";
+import { parseWorkClassification } from "@/domain/work-categories";
 
 function value(form: FormData, key: string) {
   const entry = form.get(key);
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     const note = value(form, "note");
     const file = form.get("file");
     const contentType = value(form, "contentType") || "image";
+    const classification = parseWorkClassification(value(form, "category"), value(form, "subcategory"));
 
     if (
       !z.uuid().safeParse(companyId).success
@@ -42,6 +44,9 @@ export async function POST(request: Request) {
     }
     if (!isContentType(contentType)) {
       return Response.json({ message: "Select a supported content type." }, { status: 400 });
+    }
+    if (!classification) {
+      return Response.json({ message: "Select a category and a subcategory belonging to that category." }, { status: 400 });
     }
 
     const company = await getCompanyForAdmin(companyId);
@@ -81,6 +86,7 @@ export async function POST(request: Request) {
       contentType: mimeType,
     });
     const fileDetails = {
+      ...classification,
       companyId: company.id,
       workspaceId: company.workspaceId,
       projectId: project.id,
@@ -94,7 +100,7 @@ export async function POST(request: Request) {
     const poster = posterId
       ? await createPosterVersion({ ...fileDetails, posterId })
       : await createPoster({ ...fileDetails, title });
-    return Response.json({ poster: { ...poster, contentType, originalName } }, { status: 201 });
+    return Response.json({ poster: { ...poster, ...classification, contentType, originalName } }, { status: 201 });
   } catch (error) {
     if (storageKey) await deleteObject(storageKey).catch(() => undefined);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") {
