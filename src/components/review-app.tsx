@@ -212,6 +212,7 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
       </header>
       <div className="preview-frame poster-preview">
         <img src={item.preview} alt={`${item.title} poster`} />
+        <span className="preview-watermark" aria-hidden="true">ClientLoop</span>
         <span className={`preview-status status-pill status-${item.decision}`}>{statusCopy[item.decision]}</span>
       </div>
       <div className="work-body">

@@ -1718,6 +1718,21 @@ label:has(input:focus-visible) {
   object-fit: contain;
 }
 
+.preview-watermark {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  opacity: 0.5;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
+  pointer-events: none;
+  user-select: none;
+}
+
 .work-card:hover .preview-frame img {
   transform: scale(1.008);
 }
