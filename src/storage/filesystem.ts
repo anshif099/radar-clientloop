@@ -52,9 +52,15 @@ export async function deleteObject(key: string) {
   await unlink(objectPath(key));
 }
 
-export async function readObject(key: string) {
+export async function objectSize(key: string) {
+  const details = await stat(objectPath(key));
+  if (!details.isFile()) throw new Error("Poster asset is not a file.");
+  return details.size;
+}
+
+export async function readObject(key: string, range?: { start: number; end: number }) {
   const source = objectPath(key);
   const details = await stat(source);
   if (!details.isFile()) throw new Error("Poster asset is not a file.");
-  return Readable.toWeb(createReadStream(source)) as ReadableStream<Uint8Array>;
+  return Readable.toWeb(createReadStream(source, range)) as ReadableStream<Uint8Array>;
 }

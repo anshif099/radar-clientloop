@@ -22,6 +22,7 @@ import {
   workspaceMemberships,
 } from "@/db/schema";
 import { toSlug } from "@/lib/slug";
+import { contentTypeFromMime, type ContentType } from "@/domain/asset-types";
 
 export interface CompanyContext {
   agencyId: string;
@@ -58,6 +59,8 @@ export interface CompanyPoster {
   version: number;
   decision: "pending" | "approved" | "changes" | "rejected";
   preview: string;
+  contentType: ContentType;
+  originalName: string;
   comments: number;
   note: string;
 }
@@ -75,6 +78,8 @@ export interface AdminPosterVersion {
   note: string;
   publishedAt: string;
   preview: string;
+  contentType: ContentType;
+  originalName: string;
   isCurrent: boolean;
   review: {
     decision: "APPROVE" | "REQUEST_CHANGES" | "REJECT";
@@ -763,6 +768,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         publishedAt: workItemVersions.publishedAt,
         assetId: assets.id,
         reviewId: reviewDecisions.id,
+        mimeType: assets.detectedMimeType,
+        originalName: assets.originalName,
         reviewDecision: reviewDecisions.decision,
         reviewerLabel: reviewDecisions.reviewerLabel,
         decidedAt: reviewDecisions.decidedAt,
@@ -845,6 +852,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         note: row.versionNote ?? "",
         publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
         preview: `/api/v1/admin/assets/${row.assetId}`,
+        contentType: contentTypeFromMime(row.mimeType),
+        originalName: row.originalName ?? "",
         isCurrent: row.versionId === row.currentVersionId,
         review: row.reviewId && row.reviewDecision && row.reviewerLabel && row.decidedAt
           ? {
@@ -951,6 +960,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
         reviewDecision: reviewDecisions.decision,
         assetId: assets.id,
         note: workItemVersions.note,
+        mimeType: assets.detectedMimeType,
+        originalName: assets.originalName,
         comments: count(reviewDecisions.id),
       })
       .from(workItems)
@@ -1010,6 +1021,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
       version: row.version,
       decision: itemDecision(row.status, row.reviewDecision),
       preview: `/api/v1/company/assets/${row.assetId}`,
+      contentType: contentTypeFromMime(row.mimeType),
+      originalName: row.originalName,
       comments: Number(row.comments),
       note: row.note ?? "",
     }));
@@ -1110,5 +1123,5 @@ export async function getCompanyAsset(context: CompanyContext, assetId: string) 
       )
       .limit(1),
   );
-  return result[0] ?? null;
+  return result.at(0) ?? null;
 }

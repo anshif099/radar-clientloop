@@ -9,6 +9,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  ExternalLink,
   FileImage,
   FolderKanban,
   FolderPlus,
@@ -27,6 +28,9 @@ import {
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { authClient } from "@/auth/client";
+import { assetActionHref, type ContentType } from "@/domain/asset-types";
+import { AssetPreview } from "./asset-preview";
+import { UploadContentFields } from "./upload-content-fields";
 
 interface Company {
   id: string;
@@ -54,6 +58,8 @@ interface PosterVersion {
   note: string;
   publishedAt: string;
   preview: string;
+  contentType: ContentType;
+  originalName: string;
   isCurrent: boolean;
   review: {
     decision: ReviewDecision;
@@ -441,7 +447,7 @@ export function AdminDashboard({
       const response = await fetch("/api/v1/admin/posters", { method: "POST", body: form });
       if (!response.ok) throw new Error(await responseMessage(response));
       const { poster } = await response.json() as {
-        poster: { id: string; assetId: string; versionId: string; versionNumber: number; title: string };
+        poster: { id: string; assetId: string; versionId: string; versionNumber: number; title: string; contentType: ContentType; originalName: string };
       };
       const note = String(form.get("note") ?? "");
       const version: PosterVersion = {
@@ -450,6 +456,8 @@ export function AdminDashboard({
         note,
         publishedAt: new Date().toISOString(),
         preview: `/api/v1/admin/assets/${poster.assetId}`,
+        contentType: poster.contentType,
+        originalName: poster.originalName,
         isCurrent: true,
         review: null,
       };
@@ -486,7 +494,7 @@ export function AdminDashboard({
           : project));
         setSelectedPosterId(created.id);
         setSelectedVersionId(version.id);
-        setMessage({ kind: "success", text: `${created.title} was published as a new poster.` });
+        setMessage({ kind: "success", text: `${created.title} was published for review.` });
       }
       setPanel(null);
       formElement.reset();
@@ -621,7 +629,7 @@ export function AdminDashboard({
                           <article className={poster.id === selectedPoster?.id ? "admin-poster-tile selected" : "admin-poster-tile"} key={poster.id}>
                             <button className="admin-poster-select" type="button" onClick={() => choosePoster(poster)} aria-label={`Open ${poster.title}`}>
                               <span className="admin-poster-image">
-                                {version ? <img src={version.preview} alt={`${poster.title} version ${version.versionNumber}`} /> : <FileImage size={30} />}
+                                {version ? <AssetPreview src={version.preview} title={`${poster.title} version ${version.versionNumber}`} contentType={version.contentType} compact /> : <FileImage size={30} />}
                                 <span className={`admin-status-pill ${status.className}`}><StatusIcon size={13} />{status.label}</span>
                               </span>
                               <span className="admin-poster-meta">
@@ -645,7 +653,7 @@ export function AdminDashboard({
                           <div><p className="eyebrow">Poster details</p><h2>{selectedPoster.title}</h2></div>
                           <button className="admin-icon-button" type="button" onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })} aria-label="Upload new version"><Upload size={18} /></button>
                         </header>
-                        <div className="admin-inspector-preview"><img src={selectedVersion.preview} alt={`${selectedPoster.title} version ${selectedVersion.versionNumber}`} /></div>
+                        <div className="admin-inspector-preview"><AssetPreview src={selectedVersion.preview} title={`${selectedPoster.title} version ${selectedVersion.versionNumber}`} contentType={selectedVersion.contentType} originalName={selectedVersion.originalName} /></div>
                         <div className="admin-version-summary">
                           <div><span>Version</span><strong>v{selectedVersion.versionNumber}{selectedVersion.isCurrent ? " · Current" : ""}</strong></div>
                           <div><span>Published</span><strong>{formatDate(selectedVersion.publishedAt)}</strong></div>
@@ -674,14 +682,14 @@ export function AdminDashboard({
                             const status = reviewPresentation(version);
                             return (
                               <button className={version.id === selectedVersion.id ? "active" : ""} type="button" key={version.id} onClick={() => setSelectedVersionId(version.id)}>
-                                <span className="admin-version-thumb"><img src={version.preview} alt="" /></span>
+                                <span className="admin-version-thumb"><AssetPreview src={version.preview} title="" contentType={version.contentType} compact /></span>
                                 <span><strong>Version {version.versionNumber}</strong><small>{formatDate(version.publishedAt)} · {status.label}</small></span>
                                 {version.isCurrent ? <em>Current</em> : <ChevronRight size={15} />}
                               </button>
                             );
                           })}
                         </div>
-                        <a className="admin-download-link" href={`${selectedVersion.preview}?download=1`}><Download size={16} />Download this version</a>
+                        <a className="admin-download-link" href={assetActionHref(selectedVersion.preview, selectedVersion.contentType)} target={selectedVersion.contentType === "website" ? "_blank" : undefined} rel={selectedVersion.contentType === "website" ? "noopener noreferrer" : undefined}>{selectedVersion.contentType === "website" ? <ExternalLink size={16} /> : <Download size={16} />}{selectedVersion.contentType === "website" ? "Open website" : "Download this version"}</a>
                       </>
                     ) : null}
                   </aside>
@@ -744,20 +752,21 @@ export function AdminDashboard({
       {panel?.type === "upload" && selectedCompany && selectedProject ? (
         <ModalFrame
           eyebrow={`${selectedCompany.name} / ${selectedProject.name}`}
-          title={uploadPosterTarget ? `Upload version ${uploadPosterTarget.currentVersionNumber + 1}` : "Upload new poster"}
+          title={uploadPosterTarget ? `Upload version ${uploadPosterTarget.currentVersionNumber + 1}` : "Add new content"}
           onClose={() => setPanel(null)}
         >
           <form className="admin-modal-form" onSubmit={uploadPoster}>
             {uploadPosterTarget ? (
               <div className="admin-version-target"><RotateCcw size={19} /><div><small>New version of</small><strong>{uploadPosterTarget.title}</strong></div></div>
             ) : (
-              <label>Poster title<input name="title" maxLength={220} placeholder="Give this poster a clear name" autoFocus required /></label>
+              <label>Title<input name="title" maxLength={220} placeholder="Give this item a clear name" autoFocus required /></label>
             )}
             <label>Upload note<textarea name="note" maxLength={3000} rows={3} placeholder={uploadPosterTarget ? "What changed in this version?" : "Optional context for the client"} /></label>
-            <label className="admin-file-field"><span>Poster image</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" required /><small>JPG, PNG, WebP, or GIF · maximum 20 MB</small></label>
+            <UploadContentFields key={uploadPosterTarget?.id ?? "new"} initialType={currentVersion(uploadPosterTarget)?.contentType} disabled={busy} />
+            {message?.kind === "error" ? <p className="upload-error" role="alert">{message.text}</p> : null}
             {!posterStorageConfigured ? <p className="storage-warning">Poster storage is not configured. Add UPLOAD_ROOT before uploading.</p> : null}
-            <button className="admin-primary-button" type="submit" disabled={busy || !posterStorageConfigured}><Upload size={18} />{busy ? "Uploading…" : uploadPosterTarget ? "Publish new version" : "Publish new poster"}</button>
-            <p className="admin-form-help">{uploadPosterTarget ? "This keeps all earlier versions and client feedback in the history." : "Choose new poster for separate artwork. Use Upload new version on a poster when revising the same artwork."}</p>
+            <button className="admin-primary-button" type="submit" disabled={busy || !posterStorageConfigured}><Upload size={18} />{busy ? "Publishing…" : uploadPosterTarget ? "Publish new version" : "Publish content"}</button>
+            <p className="admin-form-help">{uploadPosterTarget ? "This keeps all earlier versions and client feedback in the history." : "Add a file or website link for review. Use Upload new version when revising an existing item."}</p>
           </form>
         </ModalFrame>
       ) : null}

@@ -8,26 +8,8 @@ import {
   getProjectForAdmin,
 } from "@/data/companies";
 import { deleteObject, putObject } from "@/storage/filesystem";
-
-const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const maximumFileSize = 20 * 1024 * 1024;
-
-function detectImageType(bytes: Uint8Array) {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return { mimeType: "image/jpeg", extension: "jpg" };
-  }
-  if (bytes.length >= 8 && bytes.slice(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])) {
-    return { mimeType: "image/png", extension: "png" };
-  }
-  const prefix = new TextDecoder("ascii").decode(bytes.slice(0, 12));
-  if (prefix.startsWith("GIF87a") || prefix.startsWith("GIF89a")) {
-    return { mimeType: "image/gif", extension: "gif" };
-  }
-  if (prefix.startsWith("RIFF") && prefix.slice(8, 12) === "WEBP") {
-    return { mimeType: "image/webp", extension: "webp" };
-  }
-  return null;
-}
+import { contentTypeOptions, isContentType, normalizeWebsiteUrl, websiteMimeType } from "@/domain/asset-types";
+import { detectUploadType, validateUploadSize } from "@/domain/asset-upload";
 
 function value(form: FormData, key: string) {
   const entry = form.get(key);
@@ -46,6 +28,7 @@ export async function POST(request: Request) {
     const title = value(form, "title");
     const note = value(form, "note");
     const file = form.get("file");
+    const contentType = value(form, "contentType") || "image";
 
     if (
       !z.uuid().safeParse(companyId).success
@@ -57,14 +40,8 @@ export async function POST(request: Request) {
     ) {
       return Response.json({ message: "Company, project, and poster title are required." }, { status: 400 });
     }
-    if (!(file instanceof File) || file.size === 0) {
-      return Response.json({ message: "Select a poster image." }, { status: 400 });
-    }
-    if (!allowedMimeTypes.has(file.type) || file.size > maximumFileSize) {
-      return Response.json(
-        { message: "Use a JPG, PNG, WebP, or GIF image up to 20 MB." },
-        { status: 400 },
-      );
+    if (!isContentType(contentType)) {
+      return Response.json({ message: "Select a supported content type." }, { status: 400 });
     }
 
     const company = await getCompanyForAdmin(companyId);
@@ -72,16 +49,36 @@ export async function POST(request: Request) {
     const project = await getProjectForAdmin(companyId, projectId);
     if (!project) return Response.json({ message: "Project not found for the selected company." }, { status: 404 });
 
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const detected = detectImageType(bytes);
-    if (!detected || detected.mimeType !== file.type) {
-      return Response.json({ message: "The uploaded file content is not a valid supported image." }, { status: 400 });
+    let bytes: Uint8Array;
+    let mimeType: string;
+    let extension: string;
+    let originalName: string;
+    if (contentType === "website") {
+      const websiteUrl = normalizeWebsiteUrl(value(form, "websiteUrl"));
+      if (!websiteUrl) return Response.json({ message: "Enter a valid http:// or https:// website link (up to 2,048 characters, without login credentials)." }, { status: 400 });
+      // Store links as URI-list assets so they retain the same access and version history as files.
+      bytes = new TextEncoder().encode(`${websiteUrl}\r\n`);
+      mimeType = websiteMimeType;
+      extension = "url";
+      originalName = new URL(websiteUrl).hostname.slice(0, 255);
+    } else {
+      if (!(file instanceof File) || !validateUploadSize(file.size, contentType)) {
+        return Response.json({ message: `Select a ${contentTypeOptions[contentType].label} file. ${contentTypeOptions[contentType].help}.` }, { status: 400 });
+      }
+      bytes = new Uint8Array(await file.arrayBuffer());
+      const detected = detectUploadType(bytes, file.name);
+      if (!detected || detected.contentType !== contentType) {
+        return Response.json({ message: `The file content does not match the selected ${contentTypeOptions[contentType].label} type or supported file extension.` }, { status: 400 });
+      }
+      mimeType = detected.mimeType;
+      extension = detected.extension;
+      originalName = file.name.slice(0, 255);
     }
-    storageKey = `agencies/${company.id}/projects/${project.id}/posters/${posterId || randomUUID()}/${randomUUID()}.${detected.extension}`;
+    storageKey = `agencies/${company.id}/projects/${project.id}/posters/${posterId || randomUUID()}/${randomUUID()}.${extension}`;
     await putObject({
       key: storageKey,
       bytes,
-      contentType: detected.mimeType,
+      contentType: mimeType,
     });
     const fileDetails = {
       companyId: company.id,
@@ -89,15 +86,15 @@ export async function POST(request: Request) {
       projectId: project.id,
       note,
       storageKey,
-      originalName: file.name.slice(0, 255),
-      mimeType: detected.mimeType,
-      sizeBytes: file.size,
+      originalName,
+      mimeType,
+      sizeBytes: bytes.byteLength,
       actorId: session.user.id,
     };
     const poster = posterId
       ? await createPosterVersion({ ...fileDetails, posterId })
       : await createPoster({ ...fileDetails, title });
-    return Response.json({ poster }, { status: 201 });
+    return Response.json({ poster: { ...poster, contentType, originalName } }, { status: 201 });
   } catch (error) {
     if (storageKey) await deleteObject(storageKey).catch(() => undefined);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") {

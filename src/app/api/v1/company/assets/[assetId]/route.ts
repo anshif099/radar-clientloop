@@ -1,6 +1,6 @@
 import { getRequestSession } from "@/auth/server";
 import { getCompanyAsset, getCompanyContextForIdentity } from "@/data/companies";
-import { readObject } from "@/storage/filesystem";
+import { assetResponse } from "@/storage/asset-response";
 import { z } from "zod";
 
 export async function GET(request: Request, context: { params: Promise<{ assetId: string }> }) {
@@ -19,17 +19,7 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
   const asset = await getCompanyAsset(company, assetId);
   if (!asset) return Response.json({ message: "Asset not found." }, { status: 404 });
 
-  const body = await readObject(asset.storageKey).catch(() => null);
-  if (!body) return Response.json({ message: "Asset is unavailable." }, { status: 404 });
-  const download = new URL(request.url).searchParams.get("download") === "1";
-  const disposition = `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(asset.originalName)}`;
-
-  return new Response(body, {
-    headers: {
-      "Cache-Control": "private, max-age=300",
-      "Content-Disposition": disposition,
-      "Content-Type": asset.mimeType ?? "application/octet-stream",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+  return assetResponse(request, asset);
 }
+
+export const HEAD = GET;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireRequestSuperAdmin } from "@/auth/server";
 import { getAdminAsset } from "@/data/companies";
-import { readObject } from "@/storage/filesystem";
+import { assetResponse } from "@/storage/asset-response";
 
 export async function GET(request: Request, context: { params: Promise<{ assetId: string }> }) {
   try {
@@ -13,19 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
 
     const asset = await getAdminAsset(assetId);
     if (!asset) return Response.json({ message: "Asset not found." }, { status: 404 });
-    const body = await readObject(asset.storageKey).catch(() => null);
-    if (!body) return Response.json({ message: "Asset is unavailable." }, { status: 404 });
-
-    const download = new URL(request.url).searchParams.get("download") === "1";
-    const disposition = `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(asset.originalName)}`;
-    return new Response(body, {
-      headers: {
-        "Cache-Control": "private, max-age=300",
-        "Content-Disposition": disposition,
-        "Content-Type": asset.mimeType ?? "application/octet-stream",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    return await assetResponse(request, asset);
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") {
       return Response.json({ message: "Please sign in." }, { status: 401 });
@@ -36,3 +24,5 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
     throw error;
   }
 }
+
+export const HEAD = GET;

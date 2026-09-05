@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Clock3,
   Download,
+  ExternalLink,
   FileImage,
   FolderKanban,
   Home,
@@ -26,6 +27,8 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import { authClient } from "@/auth/client";
 import { PwaInstall } from "./pwa-install";
+import { AssetPreview } from "./asset-preview";
+import { assetActionHref, type ContentType } from "@/domain/asset-types";
 
 export type Decision = "pending" | "approved" | "changes" | "rejected";
 type Filter = "all" | Decision;
@@ -41,6 +44,8 @@ export interface ReviewWorkItem {
   version: number;
   decision: Decision;
   preview: string;
+  contentType: ContentType;
+  originalName: string;
   comments: number;
   note: string;
 }
@@ -210,16 +215,15 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         <div className="work-heading"><div className="title-row"><h2>{item.title}</h2><span className={`status-dot status-${item.decision}`} title={statusCopy[item.decision]} /></div><p>{item.project} · v{item.version} · {published}</p></div>
         <button className="icon-button" type="button" aria-label={`More options for ${item.title}`}><MoreHorizontal size={21} /></button>
       </header>
-      <div className="preview-frame poster-preview">
-        <img src={item.preview} alt={`${item.title} poster`} />
-        <span className="preview-watermark" aria-hidden="true">ClientLoop</span>
+      <div className={`preview-frame poster-preview content-preview-${item.contentType}`}>
+        <AssetPreview src={item.preview} title={item.title} contentType={item.contentType} originalName={item.originalName} watermark />
         <span className={`preview-status status-pill status-${item.decision}`}>{statusCopy[item.decision]}</span>
       </div>
       <div className="work-body">
         <div className="engagement-row"><span><MessageCircleMore size={18} /> {item.comments} reviews</span></div>
         {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
         {item.decision === "approved" ? (
-          <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This poster is ready to use.</span></div><a href={`${item.preview}?download=1`} aria-label="Download approved poster"><Download size={19} /></a></div>
+          <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This item is ready to use.</span></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={item.contentType === "website" ? "Open approved website" : "Download approved file"}>{item.contentType === "website" ? <ExternalLink size={19} /> : <Download size={19} />}</a></div>
         ) : item.decision === "changes" ? (
           <div className="changes-message" role="status"><RotateCcw size={20} /><div><strong>Changes requested</strong><span>Waiting for a revised poster from Rainhopes.</span></div></div>
         ) : item.decision === "rejected" ? (
@@ -304,19 +308,19 @@ function DownloadsView({ items, projects, projectFilter, dateRange, onProjectFil
   return (
     <div className="portal-view-container">
       <section className="portal-page-header">
-        <div><p className="eyebrow">Approved files</p><h1>Downloads</h1><p>Download the latest approved artwork from every project.</p></div>
+        <div><p className="eyebrow">Approved content</p><h1>Downloads</h1><p>Download approved files or open website links from every project.</p></div>
         <DateRangeSelect value={dateRange} onChange={onDateRange} />
       </section>
       <div className="portal-toolbar">
         <label><FolderKanban size={16} /><span className="sr-only">Project</span><select value={projectFilter} onChange={(event) => onProjectFilter(event.target.value)}><option value="all">All projects</option>{projects.map((project) => <option value={project.name} key={project.id}>{project.name}</option>)}</select></label>
-        <span>{downloads.length} approved {downloads.length === 1 ? "file" : "files"}</span>
+        <span>{downloads.length} approved {downloads.length === 1 ? "item" : "items"}</span>
       </div>
       {downloads.length ? (
         <section className="portal-download-grid">
           {downloads.map((item) => (
             <article key={item.id}>
-              <div><img src={item.preview} alt={`${item.title} poster`} /><span><CheckCircle2 size={14} />Approved</span></div>
-              <section><div><strong>{item.title}</strong><small>{item.project} · Version {item.version}</small></div><a href={`${item.preview}?download=1`} aria-label={`Download ${item.title}`}><Download size={18} /></a></section>
+              <div><AssetPreview src={item.preview} title={item.title} contentType={item.contentType} compact /><span className="download-status"><CheckCircle2 size={14} />Approved</span></div>
+              <section><div><strong>{item.title}</strong><small>{item.project} · Version {item.version}</small></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={`${item.contentType === "website" ? "Open" : "Download"} ${item.title}`}>{item.contentType === "website" ? <ExternalLink size={18} /> : <Download size={18} />}</a></section>
             </article>
           ))}
         </section>

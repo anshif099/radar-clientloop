@@ -1,6 +1,19 @@
 # Radar ClientLoop
 
-ClientLoop is Rainhopes' mobile-first poster review portal. It uses a Next.js 16 server, Better Auth, MariaDB/MySQL, and private filesystem storage for poster images.
+ClientLoop is Rainhopes' mobile-first content review portal. It uses a Next.js 16 server, Better Auth, MariaDB/MySQL, and private filesystem storage for uploaded content.
+
+## Supported content
+
+The upload dialog includes Image, Video, PDF, Word, Excel, and Website link options. The file picker changes to match the selected type; Website link shows a URL field.
+
+- Images: JPG, PNG, WebP, GIF (20 MB), displayed inline with a display-only ClientLoop watermark.
+- Videos: MP4, WebM, MOV, M4V (100 MB), with playback controls and byte-range streaming for seeking. Playback depends on browser codec support; the original file can also be downloaded.
+- PDFs: PDF (20 MB), with an embedded viewer and an Open PDF fallback.
+- Word: DOC, DOCX (20 MB), with a download card.
+- Excel: XLS, XLSX (20 MB), with a download card.
+- Websites: HTTP/HTTPS URLs up to 2,048 characters, opened in a new tab through an authenticated asset route.
+
+All types use the same review and version history. Website URLs are stored as private URI-list assets; no database migration is needed. Downloads serve the original file bytes. Set the hosting proxy's request body limit above 100 MB (including multipart overhead) to allow the maximum video upload size.
 
 ## Data and security model
 

@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      ...["/api/v1/admin/assets/:assetId", "/api/v1/company/assets/:assetId"].map((source) => ({
+        source,
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      })),
       {
         source: "/sw.js",
         headers: [
