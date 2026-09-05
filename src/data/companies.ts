@@ -547,7 +547,7 @@ export async function getCompanyForAdmin(companyId: string) {
       .where(and(eq(agencies.id, companyId), eq(agencies.status, "ACTIVE")))
       .limit(1),
   );
-  return result[0] ?? null;
+  return result.at(0) ?? null;
 }
 
 export async function createPoster(input: {

@@ -24,6 +24,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { authClient } from "@/auth/client";
 import { PwaInstall } from "./pwa-install";
@@ -132,6 +133,7 @@ function Sidebar({ view, onChange }: { view: WorkspaceView; onChange: (view: Wor
         <button className={view === "review" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("review")}><Home size={21} strokeWidth={2.4} /><span>Review</span></button>
         <button className={view === "dashboard" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("dashboard")}><BarChart3 size={21} /><span>Dashboard</span></button>
         <button className={view === "downloads" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("downloads")}><Download size={21} /><span>Downloads</span></button>
+        <Link className="nav-item" href="/messages"><MessageCircleMore size={21} /><span>Messages & AI</span></Link>
       </nav>
       <div className="sidebar-bottom"><PwaInstall /><SignOutButton /></div>
     </aside>
@@ -144,6 +146,7 @@ function MobileNavigation({ view, onChange }: { view: WorkspaceView; onChange: (
       <button className={view === "review" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("review")}><Home size={23} /><span>Review</span></button>
       <button className={view === "dashboard" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("dashboard")}><BarChart3 size={23} /><span>Dashboard</span></button>
       <button className={view === "downloads" ? "mobile-nav-item active" : "mobile-nav-item"} type="button" onClick={() => onChange("downloads")}><Download size={23} /><span>Downloads</span></button>
+      <Link className="mobile-nav-item" href="/messages"><MessageCircleMore size={23} /><span>Messages</span></Link>
       <SignOutButton compact />
     </nav>
   );
@@ -225,6 +228,7 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         <p className="work-classification">{workClassificationLabel(item)}</p>
         <div className="engagement-row"><span><MessageCircleMore size={18} /> {item.comments} reviews</span></div>
         {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
+        <Link className="chat-review-link" href={`/messages?mode=ai&post=${item.id}`}><Sparkles size={16} />Review with AI Ultra</Link>
         {item.decision === "approved" ? (
           <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This item is ready to use.</span></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={item.contentType === "website" ? "Open approved website" : "Download approved file"}>{item.contentType === "website" ? <ExternalLink size={19} /> : <Download size={19} />}</a></div>
         ) : item.decision === "changes" ? (

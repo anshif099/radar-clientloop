@@ -37,6 +37,8 @@ Replace `CPANEL_USER` with the current cPanel username. Do not create a public U
 
 ## 4. Create the Node.js application
 
+Chat attachments use this same private uploads directory. Back it up together with the database. After deploying the chat update, run `npm run db:migrate` to apply `0004_chat_and_local_ai.sql`. AI Ultra runs entirely locally; no external AI credentials or services are required. Keep the runtime `sharp` dependency installed for image comparison.
+
 Open **Setup Node.js App** and select **Create Application**:
 
 - Node.js version: **22**

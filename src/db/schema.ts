@@ -322,3 +322,38 @@ export type Agency = typeof agencies.$inferSelect;
 export type ClientWorkspace = typeof clientWorkspaces.$inferSelect;
 export type WorkItem = typeof workItems.$inferSelect;
 export type WorkItemVersion = typeof workItemVersions.$inferSelect;
+
+// A shared company room, plus a separate assistant history for each signed-in user.
+export const chatThreads = mysqlTable("chat_threads", {
+  id: primaryUuid(),
+  agencyId: uuid("agency_id").notNull().references(() => agencies.id),
+  workspaceId: uuid("workspace_id").notNull().references(() => clientWorkspaces.id),
+  kind: mysqlEnum("kind", ["COMPANY", "AI"]).notNull(),
+  ownerKey: varchar("owner_key", { length: 36 }).notNull().default(""),
+  ...timestamps,
+}, (table) => [uniqueIndex("chat_threads_scope_uq").on(table.agencyId, table.workspaceId, table.kind, table.ownerKey)]);
+
+export const chatMessages = mysqlTable("chat_messages", {
+  id: int("id", { unsigned: true }).autoincrement().primaryKey(),
+  threadId: uuid("thread_id").notNull().references(() => chatThreads.id),
+  senderId: varchar("sender_id", { length: 36 }).notNull(),
+  senderName: varchar("sender_name", { length: 160 }).notNull(),
+  senderRole: mysqlEnum("sender_role", ["ADMIN", "COMPANY", "ASSISTANT"]).notNull(),
+  clientMessageId: uuid("client_message_id").notNull(),
+  body: text("body").notNull(),
+  metadata: json("metadata").$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
+  createdAt: timestamp("created_at", { mode: "date", fsp: 3 }).notNull().defaultNow(),
+}, (table) => [
+  index("chat_messages_history_idx").on(table.threadId, table.id),
+  uniqueIndex("chat_messages_retry_uq").on(table.threadId, table.senderId, table.clientMessageId),
+]);
+
+export const chatAttachments = mysqlTable("chat_attachments", {
+  id: primaryUuid(),
+  messageId: int("message_id", { unsigned: true }).notNull().references(() => chatMessages.id),
+  storageKey: varchar("storage_key", { length: 700 }).notNull(),
+  originalName: varchar("original_name", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 150 }).notNull(),
+  sizeBytes: int("size_bytes", { unsigned: true }).notNull(),
+  checksumSha256: varchar("checksum_sha256", { length: 64 }).notNull(),
+}, (table) => [index("chat_attachments_message_idx").on(table.messageId), uniqueIndex("chat_attachments_storage_uq").on(table.storageKey)]);

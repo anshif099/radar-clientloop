@@ -28,6 +28,24 @@ Category and subcategory filters are available in the admin project view and the
 
 **Before starting the updated app, run `npm run db:migrate` against the application's MySQL/MariaDB database.** Migration `0003_work_categories.sql` adds nullable category and subcategory columns. Existing items remain available under All categories and Uncategorized until classified when uploading a new version.
 
+## Company chat and ClientLoop AI Ultra
+
+Open **Messages & AI** from the admin workspace, or **Messages** from the company portal. Admins select a company; its users can only access their own company's room. Messages refresh every three seconds, remain available after reload, and older history loads in pages. Retrying a failed send reuses its message identifier to prevent duplicates.
+
+Company chat supports text, images, videos, voice recordings, PDFs, Word/Excel documents, UTF-8 text/CSV, and ZIP files. Attach up to five files totaling 100 MB per message: images/documents/text up to 20 MB each, audio up to 25 MB, videos/ZIP up to 100 MB. Voice recording needs HTTPS (or localhost), microphone permission, and a compatible browser; recording stops at five minutes. Media playback depends on browser codecs. Unsupported files can be shared in a ZIP archive; archives are downloaded without extraction.
+
+Run `npm run db:migrate` before using chat. Migration `0004_chat_and_local_ai.sql` creates threads, messages, and attachments. Text, timestamps, senders, AI reports, and attachment metadata/checksums are saved in MySQL/MariaDB. File bytes are saved under private `UPLOAD_ROOT`, outside the public web root. Back up both the database and upload directory to retain complete history. Company closure preserves stored history but disables access. No message-deletion endpoint or automatic history expiry is provided.
+
+**AI Ultra is a locally coded, rule-based assistant, not a trained general-purpose language model.** It uses no external AI provider, API key, downloaded model, or remote inference. Each user has a private AI thread for each company. It reads only scoped published posts, projects, versions, and client-visible feedback. It never executes user-supplied SQL or changes approval decisions.
+
+Supported English prompts include “How many posts are pending?”, “Show approved posts this month”, `Find posts about "summer"`, “List projects”, “Show version history”, and “What feedback did the client give?”. Select **Post to discuss** or quote a unique title for post-specific questions. Date filters use UTC and a post's last-updated time. Search returns exact totals and up to 30 matching items; narrow the query for more detail.
+
+Use **Check revision** after uploading v2, or ask “Compare v1 with v2”. Reports use actual file hashes, image dimensions, normalized thumbnail differences, and the latest earlier client change request. Requirements are marked verified, missing, or unverified; upload notes are never accepted as proof. Historical answers inspect up to 100 version records, 200 decisions, and 500 feedback entries; long reports are shortened. Only the first frame of animated images is compared. PDF/Word/Excel, video, and audio receive file-level comparison, not semantic analysis. OCR, speech transcription, general knowledge, and reliable checks of wording, colors, logos, or layout are not implemented. The assistant explicitly requests human review when it cannot verify a change.
+
+For local setup, `DATABASE_URL` must use `mysql://` with a reachable MySQL/MariaDB server; a PostgreSQL/Neon URL cannot be used by this application. Set `UPLOAD_ROOT` to an existing writable private directory (absolute in production), and allow more than 100 MB including multipart overhead through the hosting proxy.
+
+`npm run test:chat-ui` runs desktop/mobile browser checks against a standalone UI fixture with mocked chat responses, including real browser microphone recording from a synthetic device. It does not replace database-backed integration testing. The fixture is separate from the Next.js application and adds no authentication bypass. These development browser checks require Node 20.19+ or 22.12+ and installed Chrome.
+
 ## Data and security model
 
 - Better Auth users, passwords, and sessions are stored in the same MariaDB/MySQL database as the application data.

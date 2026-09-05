@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:chat-ui": "playwright test --config playwright.chat.config.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:validate": "tsx scripts/validate-migration.ts",
     "auth:bootstrap": "tsx scripts/bootstrap-super-admin.ts",
@@ -31,6 +32,7 @@
     "next": "^16.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sharp": "^0.35.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -40,9 +42,9 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "oxlint": "^1.79.0",
-    "sharp": "^0.35.4",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
   }
 }

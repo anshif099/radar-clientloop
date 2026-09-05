@@ -1,3 +1,5 @@
+.chat-review-link { display: inline-flex; align-items: center; gap: 8px; padding: 10px 0; font-size: 12px; color: #705397; text-decoration: none; }
+
 :root {
   --canvas: #f4f3ee;
   --surface: #ffffff;
@@ -2168,7 +2170,7 @@ button:disabled {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   min-height: calc(66px + env(safe-area-inset-bottom));
   padding: 7px 8px calc(6px + env(safe-area-inset-bottom));
   border-top: 1px solid rgb(227 225 217 / 92%);

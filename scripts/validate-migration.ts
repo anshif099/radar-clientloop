@@ -27,6 +27,9 @@ const requiredTables = [
   "feedback_entries",
   "audit_events",
   "outbox_events",
+  "chat_threads",
+  "chat_messages",
+  "chat_attachments",
 ];
 
 for (const table of requiredTables) {

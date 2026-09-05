@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
-      ...["/api/v1/admin/assets/:assetId", "/api/v1/company/assets/:assetId"].map((source) => ({
+      ...["/api/v1/admin/assets/:assetId", "/api/v1/company/assets/:assetId", "/api/v1/chat/attachments/:attachmentId"].map((source) => ({
         source,
         headers: [
           { key: "X-Frame-Options", value: "SAMEORIGIN" },

@@ -26,6 +26,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { authClient } from "@/auth/client";
 import { assetActionHref, type ContentType } from "@/domain/asset-types";
@@ -572,6 +573,9 @@ export function AdminDashboard({
             {selectedProject ? <><ChevronRight size={14} /><strong>{selectedProject.name}</strong></> : null}
           </div>
           {selectedCompany ? (
+            <Link className="admin-subtle-button" href={`/messages?companyId=${selectedCompany.id}`}><MessageSquareText size={16} />Messages & AI</Link>
+          ) : null}
+          {selectedCompany ? (
             <button className="admin-subtle-button" type="button" onClick={() => setPanel({ type: "edit-company" })}>
               <Settings2 size={16} />Company settings
             </button>
@@ -686,6 +690,7 @@ export function AdminDashboard({
                           );
                         })()}
                         {selectedVersion.note ? <section className="admin-team-note"><small>Upload note</small><p>{selectedVersion.note}</p></section> : null}
+                        <Link className="chat-review-link" href={`/messages?companyId=${selectedCompany.id}&mode=ai&post=${selectedPoster.id}`}><MessageSquareText size={17} />Check revision with AI Ultra</Link>
                         <div className="admin-history-heading"><h3>Version history</h3><span>{selectedPoster.versions.length} versions</span></div>
                         <div className="admin-version-list">
                           {selectedPoster.versions.map((version) => {
