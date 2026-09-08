@@ -59,3 +59,128 @@ export async function getAiWorkItem(scope: ChatScope, itemId: string) {
   ]);
   return { item, versions: versionRows, reviews, feedback: feedback.map(({ feedback: entry }) => entry) };
 }
+
+function clip(value: string | null, length = 500) {
+  if (!value) return null;
+  return value.length > length ? `${value.slice(0, length)}…` : value;
+}
+
+/**
+ * A deliberately bounded, authorization-scoped view of ClientLoop data for the
+ * in-browser model. Never expose storage keys, checksums, internal feedback, or
+ * authentication records here.
+ */
+export async function getBrowserAiGrounding(scope: ChatScope, selectedWorkItemId?: string) {
+  const [companyOverview, posts, statusTotals, projects, recentVersions, recentFeedback, selected] = await Promise.all([
+    getAiCompanyOverview(scope),
+    db.select({
+      id: workItems.id,
+      title: workItems.title,
+      description: workItems.description,
+      category: workItems.category,
+      subcategory: workItems.subcategory,
+      status: workItems.status,
+      project: divisions.name,
+      firstPublishedAt: workItems.firstPublishedAt,
+      approvedAt: workItems.approvedAt,
+      createdAt: workItems.createdAt,
+      updatedAt: workItems.updatedAt,
+    }).from(workItems)
+      .leftJoin(divisions, and(eq(divisions.id, workItems.divisionId), eq(divisions.agencyId, scope.agencyId)))
+      .where(itemScope(scope)).orderBy(desc(workItems.updatedAt)).limit(30),
+    db.select({ status: workItems.status, total: count() }).from(workItems)
+      .where(itemScope(scope)).groupBy(workItems.status),
+    db.select({ name: divisions.name, postCount: count(workItems.id) }).from(divisions)
+      .leftJoin(workItems, and(eq(workItems.divisionId, divisions.id), itemScope(scope)))
+      .where(eq(divisions.agencyId, scope.agencyId))
+      .groupBy(divisions.id, divisions.name).orderBy(divisions.name).limit(100),
+    db.select({
+      postTitle: workItems.title,
+      versionNumber: workItemVersions.versionNumber,
+      note: workItemVersions.note,
+      publishedAt: workItemVersions.publishedAt,
+      createdAt: workItemVersions.createdAt,
+    }).from(workItemVersions)
+      .innerJoin(workItems, and(eq(workItems.id, workItemVersions.workItemId), itemScope(scope)))
+      .where(and(eq(workItemVersions.agencyId, scope.agencyId), eq(workItemVersions.status, "PUBLISHED")))
+      .orderBy(desc(workItemVersions.publishedAt)).limit(20),
+    db.select({
+      postTitle: workItems.title,
+      decision: reviewDecisions.decision,
+      reviewer: reviewDecisions.reviewerLabel,
+      decidedAt: reviewDecisions.decidedAt,
+      kind: feedbackEntries.kind,
+      text: feedbackEntries.textContent,
+      referenceUrl: feedbackEntries.referenceUrl,
+    }).from(feedbackEntries)
+      .innerJoin(reviewDecisions, and(
+        eq(reviewDecisions.id, feedbackEntries.reviewDecisionId),
+        eq(reviewDecisions.agencyId, scope.agencyId),
+        eq(reviewDecisions.workspaceId, scope.workspaceId),
+      ))
+      .innerJoin(workItems, and(eq(workItems.id, reviewDecisions.workItemId), itemScope(scope)))
+      .where(and(
+        eq(feedbackEntries.agencyId, scope.agencyId),
+        eq(feedbackEntries.workspaceId, scope.workspaceId),
+        eq(feedbackEntries.visibility, "CLIENT_VISIBLE"),
+      )).orderBy(desc(feedbackEntries.createdAt)).limit(15),
+    selectedWorkItemId ? getAiWorkItem(scope, selectedWorkItemId) : Promise.resolve(null),
+  ]);
+
+  const selectedPost = selected ? {
+    id: selected.item.id,
+    title: selected.item.title,
+    description: clip(selected.item.description, 800),
+    category: selected.item.category,
+    subcategory: selected.item.subcategory,
+    status: selected.item.status,
+    firstPublishedAt: selected.item.firstPublishedAt,
+    approvedAt: selected.item.approvedAt,
+    createdAt: selected.item.createdAt,
+    updatedAt: selected.item.updatedAt,
+    versions: selected.versions.slice(0, 12).map(({ version, asset }) => ({
+      versionNumber: version.versionNumber,
+      status: version.status,
+      note: clip(version.note),
+      publishedAt: version.publishedAt,
+      createdAt: version.createdAt,
+      file: asset ? { name: asset.originalName, mimeType: asset.detectedMimeType ?? asset.declaredMimeType, sizeBytes: asset.sizeBytes } : null,
+    })),
+    reviews: selected.reviews.slice(0, 15).map((review) => ({
+      versionId: review.versionId,
+      decision: review.decision,
+      reviewer: review.reviewerLabel,
+      decidedAt: review.decidedAt,
+    })),
+    feedback: selected.feedback.slice(0, 15).map((entry) => ({
+      kind: entry.kind,
+      text: clip(entry.textContent, 800),
+      referenceUrl: entry.referenceUrl,
+      createdAt: entry.createdAt,
+    })),
+  } : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    access: { role: scope.role, selectedCompany: scope.companyName },
+    companies: {
+      total: companyOverview.total,
+      visible: companyOverview.companies,
+      truncated: companyOverview.companies.length < companyOverview.total,
+    },
+    workspace: {
+      statusTotals: Object.fromEntries(statusTotals.map((entry) => [entry.status, Number(entry.total)])),
+      projects: projects.map((entry) => ({ name: entry.name, postCount: Number(entry.postCount) })),
+      recentPosts: posts.map((post) => ({ ...post, description: clip(post.description) })),
+      recentPublishedVersions: recentVersions.map((version) => ({ ...version, note: clip(version.note) })),
+      recentClientVisibleFeedback: recentFeedback.map((entry) => ({ ...entry, text: clip(entry.text, 800) })),
+      limits: {
+        recentPosts: 30,
+        recentPublishedVersions: 20,
+        recentClientVisibleFeedback: 15,
+        note: "Counts are complete; detail lists contain the most recent records only.",
+      },
+    },
+    selectedPost,
+  };
+}

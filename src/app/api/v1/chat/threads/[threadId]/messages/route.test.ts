@@ -3,14 +3,12 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/auth/server", () => ({ requireRequestSession: vi.fn() }));
 vi.mock("@/data/companies", () => ({ getCompanyForAdmin: vi.fn(), getCompanyContextForIdentity: vi.fn() }));
 vi.mock("@/data/chat", () => ({ getChatThread: vi.fn(), listChatMessages: vi.fn(), saveChatMessage: vi.fn() }));
-vi.mock("@/data/ai", () => ({ getAiWorkItem: vi.fn() }));
-vi.mock("@/ai/local-assistant", () => ({ answerLocally: vi.fn() }));
+vi.mock("@/data/ai", () => ({ getAiWorkItem: vi.fn(), getBrowserAiGrounding: vi.fn() }));
 vi.mock("@/storage/filesystem", () => ({ putObject: vi.fn(), deleteObject: vi.fn() }));
 import { requireRequestSession } from "@/auth/server";
 import { getCompanyContextForIdentity } from "@/data/companies";
 import { getChatThread, listChatMessages, saveChatMessage } from "@/data/chat";
-import { getAiWorkItem } from "@/data/ai";
-import { answerLocally } from "@/ai/local-assistant";
+import { getAiWorkItem, getBrowserAiGrounding } from "@/data/ai";
 import { deleteObject, putObject } from "@/storage/filesystem";
 import { GET, POST } from "./route";
 const threadId = "11111111-1111-4111-8111-111111111111";
@@ -32,6 +30,7 @@ beforeEach(() => {
   vi.mocked(saveChatMessage).mockResolvedValue({ id: 1, body: "Hello", metadata: {}, created: true });
   vi.mocked(putObject).mockResolvedValue(undefined);
   vi.mocked(deleteObject).mockResolvedValue(undefined);
+  vi.mocked(getBrowserAiGrounding).mockResolvedValue({ companies: { total: 1 } } as Awaited<ReturnType<typeof getBrowserAiGrounding>>);
 });
 it("blocks unauthenticated reads and writes", async () => {
   vi.mocked(requireRequestSession).mockRejectedValue(new Error("UNAUTHENTICATED"));
@@ -62,16 +61,20 @@ it("cleans up duplicate retry files without creating another stored message", as
 it("blocks cross-company post analysis before persisting a prompt", async () => {
   vi.mocked(getChatThread).mockResolvedValue({ id: threadId, kind: "AI" } as Awaited<ReturnType<typeof getChatThread>>);
   vi.mocked(getAiWorkItem).mockRejectedValue(new Error("NOT_FOUND"));
-  expect((await POST(request([], { workItemId: clientMessageId }), context)).status).toBe(404);
-  expect(saveChatMessage).not.toHaveBeenCalled(); expect(answerLocally).not.toHaveBeenCalled();
+  expect((await POST(request([], { workItemId: clientMessageId, browserAi: "1" }), context)).status).toBe(404);
+  expect(saveChatMessage).not.toHaveBeenCalled();
 });
-it("answers from the saved prompt when retrying an interrupted AI request", async () => {
+it("rejects the obsolete rule-based AI mode", async () => {
   vi.mocked(getChatThread).mockResolvedValue({ id: threadId, kind: "AI" } as Awaited<ReturnType<typeof getChatThread>>);
-  vi.mocked(saveChatMessage).mockResolvedValue({ id: 1, body: "Original saved question", metadata: {}, created: false });
-  vi.mocked(answerLocally).mockResolvedValue({ body: "Local answer", metadata: { engine: "local" } });
-  expect((await POST(request(), context)).status).toBe(200);
-  expect(answerLocally).toHaveBeenCalledWith(expect.anything(), "Original saved question", undefined);
-  expect(saveChatMessage).toHaveBeenLastCalledWith(expect.anything(), threadId, expect.objectContaining({ assistant: true, body: "Local answer", clientMessageId }));
+  expect((await POST(request(), context)).status).toBe(400);
+  expect(saveChatMessage).not.toHaveBeenCalled();
+});
+it("returns scoped grounding and defers generation to the browser GPU", async () => {
+  vi.mocked(getChatThread).mockResolvedValue({ id: threadId, kind: "AI" } as Awaited<ReturnType<typeof getChatThread>>);
+  const response = await POST(request([], { browserAi: "1" }), context);
+  expect(response.status).toBe(201);
+  expect(getBrowserAiGrounding).toHaveBeenCalledWith(expect.objectContaining({ agencyId: "a", workspaceId: "workspace-a" }), undefined);
+  expect(await response.json()).toMatchObject({ browserAi: { question: "Hello", sourceMessageId: 1, clientMessageId } });
 });
 it("rejects ambiguous cursors but accepts incremental polling of an empty room", async () => {
   expect((await GET(new Request("https://app.test/chat?before=1&after=2"), context)).status).toBe(400);

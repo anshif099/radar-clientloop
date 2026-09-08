@@ -2,8 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { assertChatOrigin, chatError, ChatInputError, requireChatScope } from "@/auth/chat";
 import { getChatThread, listChatMessages, saveChatMessage, type NewChatAttachment } from "@/data/chat";
-import { getAiWorkItem } from "@/data/ai";
-import { answerLocally } from "@/ai/local-assistant";
+import { getAiWorkItem, getBrowserAiGrounding } from "@/data/ai";
 import { detectChatUpload } from "@/domain/chat-upload";
 import { maxChatBytes, maxChatFiles, maxChatText } from "@/domain/chat";
 import { deleteObject, putObject } from "@/storage/filesystem";
@@ -38,6 +37,7 @@ export async function POST(request: Request, context: Context) {
     const form = await request.formData();
     const body = formText(form, "body");
     const clientMessageId = formText(form, "clientMessageId");
+    const useBrowserAi = formText(form, "browserAi") === "1";
     const afterValue = formText(form, "after");
     const after = afterValue ? Number(afterValue) : undefined;
     if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) throw new ChatInputError("Invalid history cursor.");
@@ -50,6 +50,7 @@ export async function POST(request: Request, context: Context) {
     if ((!body && !files.length) || body.length > maxChatText) throw new ChatInputError("Enter a message up to 8,000 characters or attach a file.");
     if (files.length > maxChatFiles || files.reduce((sum, file) => sum + file.size, 0) > maxChatBytes) throw new ChatInputError("Attach up to 5 files totaling 100 MB or less.");
     if (thread.kind === "AI" && files.length) throw new ChatInputError("Share attachments in company chat. For AI revision checks, choose a published post.");
+    if (thread.kind === "AI" && !useBrowserAi) throw new ChatInputError("AI Ultra requires the browser WebGPU mode.");
     if (thread.kind === "AI") {
       if (!workItemId) {
         const history = await listChatMessages(scope, threadId);
@@ -75,11 +76,13 @@ export async function POST(request: Request, context: Context) {
     committed = saved.created;
     if (!saved.created) await Promise.all(stored.map((key) => deleteObject(key).catch(() => undefined)));
     if (thread.kind === "AI") {
-      // Synchronous local execution: the request returns only after both messages persist.
-      // Retry uses the same unique key, including when the earlier request was interrupted.
-      const reply = await answerLocally(scope, saved.body, typeof saved.metadata.workItemId === "string" ? saved.metadata.workItemId : undefined);
-      if (reply.body.length > 14000) reply.body = `${reply.body.slice(0, 13800)}\n\nReport shortened. Review the original feedback and version files for the complete record.`;
-      await saveChatMessage(scope, threadId, { ...reply, clientMessageId, assistant: true });
+      const selectedWorkItemId = typeof saved.metadata.workItemId === "string" ? saved.metadata.workItemId : undefined;
+      const grounding = await getBrowserAiGrounding(scope, selectedWorkItemId);
+      return Response.json({
+        messageId: saved.id,
+        browserAi: { question: saved.body, sourceMessageId: saved.id, clientMessageId, grounding },
+        ...(await listChatMessages(scope, threadId, { after })),
+      }, { status: saved.created ? 201 : 200, headers: { "Cache-Control": "private, no-store" } });
     }
     return Response.json({ messageId: saved.id, ...(await listChatMessages(scope, threadId, { after })) }, { status: saved.created ? 201 : 200, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

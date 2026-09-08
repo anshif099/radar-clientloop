@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import { db, withAgency } from "@/db/client";
 import { auditEvents, chatAttachments, chatMessages, chatThreads } from "@/db/schema";
 import type { ChatKind, ChatMessage } from "@/domain/chat";
@@ -34,6 +34,19 @@ export async function getChatThread(scope: ChatScope, threadId: string) {
   const [thread] = await db.select().from(chatThreads).where(and(threadScope(scope), eq(chatThreads.id, threadId))).limit(1);
   if (!thread) throw new Error("NOT_FOUND");
   return thread;
+}
+export async function getUserChatMessage(scope: ChatScope, threadId: string, messageId: number) {
+  await getChatThread(scope, threadId);
+  const [row] = await db.select({ message: chatMessages }).from(chatMessages)
+    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
+    .where(and(
+      threadScope(scope),
+      eq(chatMessages.threadId, threadId),
+      eq(chatMessages.id, messageId),
+      eq(chatMessages.senderId, scope.userId),
+      ne(chatMessages.senderRole, "ASSISTANT"),
+    )).limit(1);
+  return row?.message ?? null;
 }
 export async function listChatMessages(scope: ChatScope, threadId: string, cursor: { before?: number; after?: number } = {}) {
   await getChatThread(scope, threadId);
