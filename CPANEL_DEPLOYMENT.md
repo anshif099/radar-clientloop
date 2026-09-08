@@ -103,6 +103,20 @@ npm run build
 The build script uses Webpack because some shared-hosting Linux images provide
 WebAssembly SWC bindings but cannot load the native Turbopack binary.
 
+The checked-in `next.config.ts` limits builds to one worker and enables Webpack's
+memory optimizations for shared-hosting quotas. A warning that the native SWC
+binary needs a newer GLIBC is expected on some cPanel servers; Next.js falls back
+to its cached WebAssembly SWC package. If the output says `Compiled successfully`,
+that warning is not the build failure.
+
+If an older copy of `next.config.ts` is still deployed and page-data collection
+starts many workers before exiting with `SIGABRT`, temporarily limit the build
+from the cPanel terminal:
+
+```bash
+CIRCLE_NODE_TOTAL=1 npm run build
+```
+
 If Terminal commands cannot see the environment variables configured in **Setup Node.js App**, create `/home/CPANEL_USER/clientloop-app/.env.production.local` through File Manager using the same values, set its permissions to `600`, run the commands, and keep the file private.
 
 The migration creates all 19 application and Better Auth tables. Do not create those tables manually in phpMyAdmin and do not import the old PostgreSQL migrations.

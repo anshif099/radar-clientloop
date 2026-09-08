@@ -4,6 +4,12 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    // Shared hosts can expose many CPUs while enforcing a small memory/process
+    // quota. Keep SWC-WASM page-data generation inside that quota.
+    cpus: 1,
+    webpackMemoryOptimizations: true,
+  },
   async headers() {
     const securityHeaders = [
       { key: "X-Content-Type-Options", value: "nosniff" },
