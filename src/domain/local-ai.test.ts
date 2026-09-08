@@ -5,6 +5,9 @@ describe("locally interpreted questions", () => {
   it.each(["How many posts are pending?", "Count unapproved posters"])("understands status counts: %s", (question) => {
     expect(interpretQuestion(question)).toMatchObject({ kind: "summary", status: "AWAITING_CLIENT_REVIEW" });
   });
+  it.each(["How many companies I have?", "Show my companies", "List clients"])("recognizes company questions: %s", (question) => {
+    expect(interpretQuestion(question)).toMatchObject({ kind: "companies", query: "" });
+  });
   it("keeps status and time filters when listing posts", () => {
     expect(interpretQuestion("Show approved posts this month", new Date("2026-09-05T12:00:00Z"))).toMatchObject({ kind: "search", status: "APPROVED", query: "", since: new Date("2026-09-01T00:00:00Z") });
   });

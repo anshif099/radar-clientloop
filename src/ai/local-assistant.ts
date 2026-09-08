@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import { getAiWorkItem, searchAiWorkspace } from "@/data/ai";
+import { getAiCompanyOverview, getAiWorkItem, searchAiWorkspace } from "@/data/ai";
 import type { ChatScope } from "@/data/chat";
 import { checkRevisionRequirements, interpretQuestion } from "@/domain/local-ai";
 import { objectSize, readObject } from "@/storage/filesystem";
@@ -110,6 +110,16 @@ export async function answerLocally(scope: ChatScope, question: string, itemId?:
   const intent = interpretQuestion(question);
   if (intent.kind === "greeting") return { body: `Hello ${scope.userName}! I can help with ${scope.companyName}’s posts, feedback, and revisions. What would you like to check?`, metadata: {} };
   if (intent.kind === "help") return { body: help, metadata: {} };
+  if (intent.kind === "companies") {
+    const data = await getAiCompanyOverview(scope);
+    if (!data.total) return { body: "You do not have any active companies yet.", metadata: { engine: "clientloop-local-v1" } };
+    const names = data.companies.map(({ name }) => name).join(", ");
+    const more = data.total > data.companies.length ? `, and ${data.total - data.companies.length} more` : "";
+    return {
+      body: `You have ${data.total} active ${data.total === 1 ? "company" : "companies"}: ${names}${more}.`,
+      metadata: { engine: "clientloop-local-v1" },
+    };
+  }
   if (["review", "feedback", "history"].includes(intent.kind) && itemId) return intent.kind === "review" ? reviewItem(scope, itemId, question) : describeItem(scope, itemId, intent.kind as "feedback" | "history");
   if (["review", "feedback", "history"].includes(intent.kind)) {
     const quoted = question.match(/["“]([^"”]+)["”]/)?.[1];

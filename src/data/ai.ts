@@ -1,13 +1,26 @@
 import "server-only";
 import { and, count, desc, eq, gte, like, ne, or, sql } from "drizzle-orm";
-import { db } from "@/db/client";
-import { assets, divisions, feedbackEntries, reviewDecisions, versionAssets, workItems, workItemVersions } from "@/db/schema";
+import { db, withPlatformAdmin } from "@/db/client";
+import { agencies, assets, divisions, feedbackEntries, reviewDecisions, versionAssets, workItems, workItemVersions } from "@/db/schema";
 import type { ChatScope } from "./chat";
 import type { LocalIntent } from "@/domain/local-ai";
 
 function itemScope(scope: ChatScope) {
   if (!scope.agencyId || !scope.workspaceId) throw new Error("FORBIDDEN");
   return and(eq(workItems.agencyId, scope.agencyId), eq(workItems.workspaceId, scope.workspaceId), ne(workItems.status, "ARCHIVED"), ne(workItems.status, "DRAFT"));
+}
+export async function getAiCompanyOverview(scope: ChatScope) {
+  if (scope.role !== "ADMIN") {
+    return { total: 1, companies: [{ id: scope.agencyId, name: scope.companyName }] };
+  }
+  return withPlatformAdmin(async (transaction) => {
+    const [totals, companies] = await Promise.all([
+      transaction.select({ total: count() }).from(agencies).where(eq(agencies.status, "ACTIVE")),
+      transaction.select({ id: agencies.id, name: agencies.name }).from(agencies)
+        .where(eq(agencies.status, "ACTIVE")).orderBy(agencies.name).limit(100),
+    ]);
+    return { total: Number(totals[0]?.total ?? 0), companies };
+  });
 }
 export async function searchAiWorkspace(scope: ChatScope, intent: LocalIntent) {
   const search = intent.query ? `%${intent.query.slice(0, 220).replace(/[\\%_]/g, "\\$&")}%` : null;

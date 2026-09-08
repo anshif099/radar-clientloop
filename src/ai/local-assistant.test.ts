@@ -1,9 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import sharp from "sharp";
 vi.mock("server-only", () => ({}));
-vi.mock("@/data/ai", () => ({ getAiWorkItem: vi.fn(), searchAiWorkspace: vi.fn() }));
+vi.mock("@/data/ai", () => ({ getAiCompanyOverview: vi.fn(), getAiWorkItem: vi.fn(), searchAiWorkspace: vi.fn() }));
 vi.mock("@/storage/filesystem", () => ({ objectSize: vi.fn(), readObject: vi.fn() }));
-import { getAiWorkItem } from "@/data/ai";
+import { getAiCompanyOverview, getAiWorkItem, searchAiWorkspace } from "@/data/ai";
 import { objectSize, readObject } from "@/storage/filesystem";
 import { answerLocally } from "./local-assistant";
 import type { ChatScope } from "@/data/chat";
@@ -22,6 +22,12 @@ beforeEach(async () => {
     reviews: [{ id: "review", versionId: "v1", decision: "REQUEST_CHANGES", reviewerLabel: "Client", decidedAt: new Date("2026-09-01T10:00:00Z") }],
     feedback: [{ reviewDecisionId: "review", kind: "TEXT", textContent: "Please resize to 1080 x 1080 pixels\nMake the logo blue" }],
   } as Awaited<ReturnType<typeof getAiWorkItem>>);
+});
+it("answers company-count questions directly instead of searching posts", async () => {
+  vi.mocked(getAiCompanyOverview).mockResolvedValue({ total: 2, companies: [{ id: "a", name: "Company A" }, { id: "b", name: "Company B" }] });
+  const reply = await answerLocally({ ...scope, role: "ADMIN" }, "How many companies I have?");
+  expect(reply.body).toBe("You have 2 active companies: Company A, Company B.");
+  expect(searchAiWorkspace).not.toHaveBeenCalled();
 });
 it("compares real file bytes and dimensions and preserves unverified requests", async () => {
   const network = vi.spyOn(globalThis, "fetch");

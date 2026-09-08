@@ -1,6 +1,6 @@
 // ClientLoop's local, deterministic language interpreter. No model or remote API.
 export interface LocalIntent {
-  kind: "review" | "feedback" | "history" | "summary" | "search" | "projects" | "help" | "greeting";
+  kind: "review" | "feedback" | "history" | "summary" | "search" | "projects" | "companies" | "help" | "greeting";
   status?: "APPROVED" | "AWAITING_CLIENT_REVIEW" | "REVISION_REQUIRED";
   reviewDecision?: "REQUEST_CHANGES" | "REJECT";
   query: string;
@@ -28,6 +28,7 @@ export function interpretQuestion(question: string, now = new Date()): LocalInte
   if (/\b(analy[sz]e|analize|compare|check|perfect|missing|fixed|satisfied|review|v\d+|version \d+)\b/.test(text) && !/awaiting review|pending review/.test(text)) return { kind: "review", query, status, since };
   if (/\b(feedback|suggestions?|client.*request|client.*changes|requested changes)\b/.test(text)) return { kind: "feedback", query: "" };
   if (/\b(help|how (do|can|to)|what can|who are)\b/.test(text)) return { kind: "help", query: "" };
+  if (/\b(companies|company|clients?|accounts?)\b/.test(text) && /\b(how many|count|total|list|show|have|overview)\b/.test(text)) return { kind: "companies", query: "" };
   if (/\b(projects|campaigns)\b/.test(text) && !/\b(posts?|posters?|items?)\b/.test(text)) return { kind: "projects", query: "", since };
   if (/\b(how many|count|total|summary|summari[sz]e|overview|progress|status)\b/.test(text)) return { kind: "summary", query: "", status, reviewDecision, since };
   return { kind: "search", query, status, reviewDecision, since };
