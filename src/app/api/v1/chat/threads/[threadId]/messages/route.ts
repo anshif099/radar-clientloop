@@ -50,7 +50,7 @@ export async function POST(request: Request, context: Context) {
     if ((!body && !files.length) || body.length > maxChatText) throw new ChatInputError("Enter a message up to 8,000 characters or attach a file.");
     if (files.length > maxChatFiles || files.reduce((sum, file) => sum + file.size, 0) > maxChatBytes) throw new ChatInputError("Attach up to 5 files totaling 100 MB or less.");
     if (thread.kind === "AI" && files.length) throw new ChatInputError("Share attachments in company chat. For AI revision checks, choose a published post.");
-    if (thread.kind === "AI" && !useBrowserAi) throw new ChatInputError("AI Ultra requires the browser WebGPU mode.");
+    if (thread.kind === "AI" && !useBrowserAi) throw new ChatInputError("AI Ultra requires on-device browser AI mode.");
     if (thread.kind === "AI") {
       if (!workItemId) {
         const history = await listChatMessages(scope, threadId);

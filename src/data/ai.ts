@@ -83,7 +83,7 @@ const applicationGuide = {
   ],
   content: "Supported content includes images, videos, PDFs, Word and Excel documents, and website links. Categories and subcategories help organize work.",
   conversations: "Company chat is shared between the agency and that company. AI Ultra conversations are private to the signed-in user and scoped to the selected company.",
-  ai: "AI Ultra runs an open-source language model in the user's browser with WebGPU. It can explain ClientLoop, answer from authorized workspace facts, summarize progress, discuss feedback and version history, and use a selected post as context. It cannot change records or reliably inspect pixels, document pages, audio, or video content.",
+  ai: "AI Ultra runs an open-source language model in the user's browser. It prefers WebGPU and automatically uses a private CPU/WASM model when no compatible GPU is available. It can explain ClientLoop, answer from authorized workspace facts, summarize progress, discuss feedback and version history, and use a selected post as context. It cannot change records or reliably inspect pixels, document pages, audio, or video content.",
   privacy: "Authentication, authorization, and database retrieval happen on the ClientLoop server. The browser model receives bounded authorized context without passwords, tokens, private storage paths, checksums, or internal-only feedback.",
   statusMeaning: {
     APPROVED: "The client approved the current published version.",

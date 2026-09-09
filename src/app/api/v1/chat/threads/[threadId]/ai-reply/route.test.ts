@@ -8,7 +8,7 @@ vi.mock("@/data/chat", () => ({ getChatThread: vi.fn(), getUserChatMessage: vi.f
 import { requireRequestSession } from "@/auth/server";
 import { getCompanyContextForIdentity } from "@/data/companies";
 import { getChatThread, getUserChatMessage, listChatMessages, saveChatMessage } from "@/data/chat";
-import { browserAiModel } from "@/domain/browser-ai";
+import { browserAiModel, browserCpuAiModel } from "@/domain/browser-ai";
 import { POST } from "./route";
 
 const threadId = "11111111-1111-4111-8111-111111111111";
@@ -19,7 +19,7 @@ function request(overrides: Record<string, unknown> = {}) {
   return new Request(`https://app.test/ai-reply?companyId=a`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sourceMessageId: 7, clientMessageId, body: "There is 1 company.", model: browserAiModel, after: 7, ...overrides }),
+    body: JSON.stringify({ sourceMessageId: 7, clientMessageId, body: "There is 1 company.", engine: "webllm-webgpu", model: browserAiModel, after: 7, ...overrides }),
   });
 }
 
@@ -47,6 +47,19 @@ it("saves a verified browser-generated reply with engine metadata", async () => 
 
 it("rejects replies claiming an unapproved browser model", async () => {
   expect((await POST(request({ model: "unknown-model" }), context)).status).toBe(400);
+  expect(saveChatMessage).not.toHaveBeenCalled();
+});
+
+it("saves a verified CPU/WASM-generated reply with truthful engine metadata", async () => {
+  const response = await POST(request({ engine: "transformers-wasm", model: browserCpuAiModel }), context);
+  expect(response.status).toBe(201);
+  expect(saveChatMessage).toHaveBeenCalledWith(expect.anything(), threadId, expect.objectContaining({
+    metadata: { engine: "transformers-wasm", model: browserCpuAiModel, sourceMessageId: 7 },
+  }));
+});
+
+it("rejects mismatched model and engine metadata", async () => {
+  expect((await POST(request({ engine: "transformers-wasm", model: browserAiModel }), context)).status).toBe(400);
   expect(saveChatMessage).not.toHaveBeenCalled();
 });
 

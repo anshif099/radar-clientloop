@@ -1,18 +1,21 @@
 import { z } from "zod";
 import { assertChatOrigin, chatError, ChatInputError, requireChatScope } from "@/auth/chat";
 import { getChatThread, getUserChatMessage, listChatMessages, saveChatMessage } from "@/data/chat";
-import { browserAiModels, maxBrowserAiReply } from "@/domain/browser-ai";
+import { browserCpuAiModel, browserGpuAiModels, maxBrowserAiReply } from "@/domain/browser-ai";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ threadId: string }> };
 
-const inputSchema = z.object({
+const replyFields = {
   sourceMessageId: z.number().int().positive(),
   clientMessageId: z.uuid(),
   body: z.string().min(1).max(maxBrowserAiReply),
-  model: z.enum(browserAiModels),
   after: z.number().int().nonnegative().optional(),
-});
+};
+const inputSchema = z.discriminatedUnion("engine", [
+  z.object({ ...replyFields, engine: z.literal("webllm-webgpu"), model: z.enum(browserGpuAiModels) }),
+  z.object({ ...replyFields, engine: z.literal("transformers-wasm"), model: z.literal(browserCpuAiModel) }),
+]);
 
 export async function POST(request: Request, context: Context) {
   try {
@@ -33,7 +36,7 @@ export async function POST(request: Request, context: Context) {
       body,
       clientMessageId: parsed.data.clientMessageId,
       assistant: true,
-      metadata: { engine: "webllm-webgpu", model: parsed.data.model, sourceMessageId: source.id, ...(workItemId ? { workItemId } : {}) },
+      metadata: { engine: parsed.data.engine, model: parsed.data.model, sourceMessageId: source.id, ...(workItemId ? { workItemId } : {}) },
     });
     return Response.json({ messageId: saved.id, ...(await listChatMessages(scope, threadId, { after: parsed.data.after })) }, {
       status: saved.created ? 201 : 200,

@@ -1,19 +1,27 @@
 "use client";
 
-import { browserAiModels, type BrowserAiModel } from "@/domain/browser-ai";
+import { browserCpuAiModel, browserGpuAiModels, type BrowserAiEngine, type BrowserAiModel, type BrowserGpuAiModel } from "@/domain/browser-ai";
 
 export interface BrowserAiProgress {
   percent: number;
   text: string;
 }
 
+type AiMessage = { role: "system" | "user" | "assistant"; content: string };
+type CpuWorkerResponse =
+  | { id: string; type: "progress"; percent: number; text: string }
+  | { id: string; type: "result"; body: string }
+  | { id: string; type: "error"; error: string };
+export interface BrowserAiAnswer { body: string; model: BrowserAiModel; engine: BrowserAiEngine }
+
 let enginePromise: ReturnType<typeof createEngineWithFallback> | null = null;
+let cpuWorker: Worker | null = null;
 
 export function supportsBrowserAi() {
-  return typeof window !== "undefined" && window.isSecureContext && "gpu" in navigator && typeof Worker !== "undefined";
+  return typeof window !== "undefined" && window.isSecureContext && typeof Worker !== "undefined";
 }
 
-async function createEngine(model: BrowserAiModel, onProgress: (progress: BrowserAiProgress) => void) {
+async function createEngine(model: BrowserGpuAiModel, onProgress: (progress: BrowserAiProgress) => void) {
   const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
   const worker = new Worker(new URL("../workers/browser-ai.worker.ts", import.meta.url), { type: "module" });
   try {
@@ -41,21 +49,21 @@ function describeFailure(error: unknown) {
 
 async function createEngineWithFallback(onProgress: (progress: BrowserAiProgress) => void, startIndex = 0) {
   const failures: string[] = [];
-  for (let index = startIndex; index < browserAiModels.length; index++) {
-    const model = browserAiModels[index];
+  for (let index = startIndex; index < browserGpuAiModels.length; index++) {
+    const model = browserGpuAiModels[index];
     try {
       return { engine: await createEngine(model, onProgress), model };
     } catch (error) {
       failures.push(`${model}: ${describeFailure(error)}`);
-      if (index < browserAiModels.length - 1) onProgress({ percent: 0, text: "Trying a smaller browser model…" });
+      if (index < browserGpuAiModels.length - 1) onProgress({ percent: 0, text: "Trying a smaller GPU model..." });
     }
   }
-  throw new Error(`The browser AI model could not load. ${failures.join(" | ")}`);
+  throw new Error(`The browser GPU models could not load. ${failures.join(" | ")}`);
 }
 
 function compactGrounding(grounding: unknown) {
   const clipped = JSON.parse(JSON.stringify(grounding, (_key, value) =>
-    typeof value === "string" && value.length > 600 ? `${value.slice(0, 600)}…` : value,
+    typeof value === "string" && value.length > 600 ? `${value.slice(0, 600)}...` : value,
   )) as unknown;
   let serialized = JSON.stringify(clipped);
   if (serialized.length <= 6_000) return serialized;
@@ -85,26 +93,51 @@ function cleanAnswer(answer: string) {
   return answer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
+function answerWithCpuAi(messages: AiMessage[], onProgress: (progress: BrowserAiProgress) => void) {
+  cpuWorker ??= new Worker(new URL("../workers/browser-ai-cpu.worker.ts", import.meta.url), { type: "module" });
+  const worker = cpuWorker;
+  const id = crypto.randomUUID();
+  return new Promise<string>((resolve, reject) => {
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    };
+    const onMessage = ({ data }: MessageEvent<CpuWorkerResponse>) => {
+      if (data.id !== id) return;
+      if (data.type === "progress") {
+        onProgress({ percent: data.percent, text: data.text });
+        return;
+      }
+      cleanup();
+      if (data.type === "result") resolve(data.body);
+      else reject(new Error(data.error));
+    };
+    const onError = (event: ErrorEvent) => {
+      cleanup();
+      worker.terminate();
+      if (cpuWorker === worker) cpuWorker = null;
+      reject(new Error(event.message || "The CPU model worker stopped unexpectedly."));
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    worker.postMessage({ id, messages });
+  });
+}
+
 export async function answerWithBrowserAi(input: {
   question: string;
   grounding: unknown;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   onProgress: (progress: BrowserAiProgress) => void;
-}) {
-  if (!supportsBrowserAi()) throw new Error("AI Ultra needs a WebGPU-capable browser over HTTPS. Use current Chrome or Edge on a computer with supported graphics.");
-  enginePromise ??= createEngineWithFallback(input.onProgress).catch((error) => {
-    enginePromise = null;
-    throw error;
-  });
-  let loaded = await enginePromise;
-  input.onProgress({ percent: 100, text: "Answering with your GPU…" });
+}): Promise<BrowserAiAnswer> {
+  if (!supportsBrowserAi()) throw new Error("AI Ultra needs HTTPS and a browser with Web Worker support.");
   const history = (input.history ?? []).slice(-4).map((message) => ({
     role: message.role,
     content: message.content.slice(0, 400),
   }));
-  const messages = [
+  const messages: AiMessage[] = [
     {
-      role: "system" as const,
+      role: "system",
       content: [
         "You are ClientLoop AI Ultra, an assistant running entirely in the user's browser.",
         "Answer the user's actual question directly and naturally. Understand spelling mistakes and informal English.",
@@ -119,31 +152,50 @@ export async function answerWithBrowserAi(input: {
     },
     ...history,
     {
-      role: "user" as const,
+      role: "user",
       content: `Today is ${new Date().toISOString()}.\n\nCLIENTLOOP_CONTEXT:\n${compactGrounding(input.grounding)}\n\nQUESTION:\n${input.question}`,
     },
   ];
-  let completion;
-  try {
-    completion = await loaded.engine.chat.completions.create({ messages, temperature: 0.2, top_p: 0.9, max_tokens: 350 });
-  } catch (primaryError) {
-    const nextIndex = browserAiModels.indexOf(loaded.model) + 1;
-    if (nextIndex >= browserAiModels.length) throw new Error(`The browser model stopped while answering: ${describeFailure(primaryError)}`);
-    input.onProgress({ percent: 0, text: "The first model was incompatible. Trying the smaller model…" });
-    await loaded.engine.unload().catch(() => undefined);
-    enginePromise = createEngineWithFallback(input.onProgress, nextIndex).catch((error) => {
-      enginePromise = null;
-      throw error;
-    });
-    loaded = await enginePromise;
+
+  let gpuFailure = "No compatible WebGPU adapter is available.";
+  if ("gpu" in navigator) {
     try {
-      completion = await loaded.engine.chat.completions.create({ messages, temperature: 0.2, top_p: 0.9, max_tokens: 350 });
-    } catch (secondaryError) {
+      enginePromise ??= createEngineWithFallback(input.onProgress).catch((error) => {
+        enginePromise = null;
+        throw error;
+      });
+      let loaded = await enginePromise;
+      input.onProgress({ percent: 100, text: "Answering with your GPU..." });
+      let completion;
+      try {
+        completion = await loaded.engine.chat.completions.create({ messages, temperature: 0.2, top_p: 0.9, max_tokens: 350 });
+      } catch (primaryError) {
+        const nextIndex = browserGpuAiModels.indexOf(loaded.model) + 1;
+        if (nextIndex >= browserGpuAiModels.length) throw new Error(`The browser model stopped while answering: ${describeFailure(primaryError)}`);
+        input.onProgress({ percent: 0, text: "The first model was incompatible. Trying the smaller GPU model..." });
+        await loaded.engine.unload().catch(() => undefined);
+        enginePromise = createEngineWithFallback(input.onProgress, nextIndex).catch((error) => {
+          enginePromise = null;
+          throw error;
+        });
+        loaded = await enginePromise;
+        completion = await loaded.engine.chat.completions.create({ messages, temperature: 0.2, top_p: 0.9, max_tokens: 350 });
+      }
+      const answer = cleanAnswer(completion.choices[0]?.message.content ?? "");
+      if (!answer) throw new Error("The GPU model did not return an answer.");
+      return { body: answer, model: loaded.model, engine: "webllm-webgpu" };
+    } catch (error) {
       enginePromise = null;
-      throw new Error(`Both browser models stopped while answering. First: ${describeFailure(primaryError)} | Second: ${describeFailure(secondaryError)}`);
+      gpuFailure = describeFailure(error);
     }
   }
-  const answer = cleanAnswer(completion.choices[0]?.message.content ?? "");
-  if (!answer) throw new Error("The browser model did not return an answer. Please try again.");
-  return { body: answer, model: loaded.model };
+
+  input.onProgress({ percent: 0, text: "GPU unavailable. Loading the private CPU model..." });
+  try {
+    const answer = cleanAnswer(await answerWithCpuAi(messages, input.onProgress));
+    if (!answer) throw new Error("The CPU model did not return an answer.");
+    return { body: answer, model: browserCpuAiModel, engine: "transformers-wasm" };
+  } catch (error) {
+    throw new Error(`The on-device AI could not load. GPU: ${gpuFailure} | CPU: ${describeFailure(error)}`);
+  }
 }

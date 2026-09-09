@@ -32,7 +32,7 @@ function RevisionSources({ message, isAdmin }: { message: ChatMessage; isAdmin: 
   })}</div>;
 }
 function assistantSource(message: ChatMessage) {
-  return message.metadata.engine === "webllm-webgpu" ? "Browser GPU" : "Workspace assistant";
+  return message.metadata.engine === "webllm-webgpu" ? "Browser GPU" : message.metadata.engine === "transformers-wasm" ? "Browser CPU" : "Workspace assistant";
 }
 
 export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, isAdmin, initialKind, initialPostId, initialPosts }: {
@@ -50,9 +50,9 @@ export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, 
       </select></label> : <p className="chat-company-name">{company?.name}</p>}
       <nav className="chat-tabs" aria-label="Conversations">
         <button type="button" aria-pressed={kind === "COMPANY"} className={kind === "COMPANY" ? "active" : ""} onClick={() => setKind("COMPANY")}><MessageSquareText size={22} /><span><strong>Company chat</strong><small>{isAdmin ? "Talk with your client" : "Talk with Rainhopes"}</small></span></button>
-        <button type="button" aria-pressed={kind === "AI"} className={kind === "AI" ? "active ai" : ""} onClick={() => setKind("AI")}><Bot size={23} /><span><strong>AI Ultra <em>ON DEVICE</em></strong><small>Powered by your GPU</small></span></button>
+        <button type="button" aria-pressed={kind === "AI"} className={kind === "AI" ? "active ai" : ""} onClick={() => setKind("AI")}><Bot size={23} /><span><strong>AI Ultra <em>ON DEVICE</em></strong><small>Powered by your GPU or CPU</small></span></button>
       </nav>
-      <div className="chat-privacy"><ShieldCheck size={20} /><p>The open-source AI runs inside your browser using your GPU. Your questions and authorized company data are not sent to an AI provider.</p></div>
+      <div className="chat-privacy"><ShieldCheck size={20} /><p>The open-source AI runs inside your browser using your GPU or CPU. Your questions and authorized company data are not sent to an AI provider.</p></div>
     </aside>
     {company ? <ChatRoom key={`${company.id}:${kind}`} companyId={company.id} companyName={company.name} userId={userId} isAdmin={isAdmin} kind={kind} initialPostId={initialPostId} initialPosts={initialPosts} />
       : <section className="chat-empty"><MessageSquareText size={44} /><h1>No company yet</h1><p>Create a company to start chatting.</p><Link href="/admin">Go to admin</Link></section>}
@@ -190,7 +190,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     const completed = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/ai-reply?${query}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, body: reply.body, model: reply.model, after: lastId.current }),
+      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, body: reply.body, engine: reply.engine, model: reply.model, after: lastId.current }),
     }));
     if (!alive.current) return;
     setConnected(true);
@@ -212,8 +212,8 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
   }
   async function send(text = body) {
     if (sendInFlight.current || sending || recording || requestingMic || !threadId || (!text.trim() && !files.length)) return;
-    if (kind === "AI" && (!window.isSecureContext || !("gpu" in navigator) || typeof Worker === "undefined")) {
-      setError("AI Ultra needs WebGPU over HTTPS. Open this page in current Chrome or Edge on a computer with supported graphics.");
+    if (kind === "AI" && (!window.isSecureContext || typeof Worker === "undefined")) {
+      setError("AI Ultra needs HTTPS and a browser with Web Worker support.");
       return;
     }
     sendInFlight.current = true;
@@ -279,7 +279,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
   }
 
   return <section className={`chat-room ${kind === "AI" ? "chat-ai-room" : ""}`} aria-label={kind === "AI" ? "ClientLoop AI Ultra" : "Company chat"}>
-    <header className="chat-room-header"><span className="chat-room-avatar">{kind === "AI" ? <Bot size={26} /> : <MessageSquareText size={25} />}</span><div><h1>{kind === "AI" ? "ClientLoop AI Ultra" : companyName}</h1><p>{loading ? "Loading history…" : !connected ? "Reconnecting…" : kind === "AI" ? "Open-source browser AI · Uses your GPU · Private to you" : "Company chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
+    <header className="chat-room-header"><span className="chat-room-avatar">{kind === "AI" ? <Bot size={26} /> : <MessageSquareText size={25} />}</span><div><h1>{kind === "AI" ? "ClientLoop AI Ultra" : companyName}</h1><p>{loading ? "Loading history…" : !connected ? "Reconnecting…" : kind === "AI" ? "Open-source browser AI · Uses your GPU or CPU · Private to you" : "Company chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
     {kind === "AI" ? <div className="chat-ai-context"><label>Post to discuss<select aria-label="Post to discuss" value={postId} disabled={sending} onChange={(event) => { setPostId(event.target.value); pendingId.current = null; }}><option value="">Company overview</option>{postId && !posts.some((post) => post.id === postId) ? <option value={postId}>Selected post</option> : null}{posts.map((post) => <option value={post.id} key={post.id}>{post.title}</option>)}</select></label><button type="button" disabled={!postId || sending || !threadId || loading} onClick={() => void send("Analyze the latest version against the client’s requested changes. What is missing?")}><Bot size={16} />Check revision</button></div> : null}
     <div className="chat-timeline" ref={scroll} role="log" aria-label="Message history" aria-live="polite" aria-busy={loading}>
       {hasOlder ? <button type="button" className="chat-load-older" disabled={loadingOlder} onClick={() => void older()}>{loadingOlder ? "Loading…" : "Load older messages"}</button> : null}
@@ -300,7 +300,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
         {kind === "COMPANY" ? <button className={`chat-tool ${recording ? "recording" : ""}`} type="button" disabled={sending || loading || requestingMic || (!recording && files.length >= maxChatFiles)} onClick={() => recording ? recorder.current?.stop() : void startRecording()} aria-label={recording ? "Stop recording" : "Record voice message"}>{recording ? <Square size={18} /> : <Mic size={20} />}</button> : null}
         <button className="chat-send" type="submit" disabled={sending || loading || !threadId || recording || requestingMic || (!body.trim() && !files.length)} aria-label="Send message"><Send size={19} /></button>
       </div>
-      <p className="chat-composer-help">{recording ? "Recording… stop to attach your voice message. Maximum 5 minutes." : kind === "AI" ? "Runs in this browser with WebGPU. The model downloads once, is cached locally, and receives only data you are authorized to view." : "Up to 5 files · 100 MB total · Images/documents 20 MB · Voice 25 MB · Shift + Enter for a new line"}</p>
+      <p className="chat-composer-help">{recording ? "Recording… stop to attach your voice message. Maximum 5 minutes." : kind === "AI" ? "Runs in this browser on your GPU or CPU. The model downloads once, is cached locally, and receives only data you are authorized to view." : "Up to 5 files · 100 MB total · Images/documents 20 MB · Voice 25 MB · Shift + Enter for a new line"}</p>
     </form>
   </section>;
 }
