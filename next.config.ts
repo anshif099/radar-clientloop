@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
@@ -9,6 +10,16 @@ const nextConfig: NextConfig = {
     // quota. Keep SWC-WASM page-data generation inside that quota.
     cpus: 1,
     webpackMemoryOptimizations: true,
+  },
+  webpack(config) {
+    // CloudLinux's Node.js Selector keeps dependencies behind a virtual-env
+    // symlink. Resolve the source alias explicitly so Webpack does not depend
+    // on host-specific tsconfig path discovery.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@": path.resolve(process.cwd(), "src"),
+    };
+    return config;
   },
   async headers() {
     const securityHeaders = [
