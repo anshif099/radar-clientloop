@@ -31,6 +31,9 @@ function RevisionSources({ message, isAdmin }: { message: ChatMessage; isAdmin: 
     return <a key={value.assetId} href={`/api/v1/${isAdmin ? "admin" : "company"}/assets/${encodeURIComponent(value.assetId)}`} target="_blank" rel="noopener noreferrer">Open version {value.versionNumber}</a>;
   })}</div>;
 }
+function assistantSource(message: ChatMessage) {
+  return message.metadata.engine === "webllm-webgpu" ? "Browser GPU" : "Workspace assistant";
+}
 
 export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, isAdmin, initialKind, initialPostId, initialPosts }: {
   companies: Array<{ id: string; name: string }>; companyId: string; userId: string; isAdmin: boolean;
@@ -71,6 +74,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [aiProgress, setAiProgress] = useState("");
+  const [retryAi, setRetryAi] = useState<BrowserAiRequest | null>(null);
   const [recording, setRecording] = useState(false);
   const [requestingMic, setRequestingMic] = useState(false);
   const [postId, setPostId] = useState(initialPostId);
@@ -169,6 +173,50 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     });
     pendingId.current = null;
   }
+  async function completeAi(request: BrowserAiRequest) {
+    let reply = "";
+    let fallback = false;
+    try {
+      const { answerWithBrowserAi } = await import("@/ai/browser-ai-client");
+      reply = await answerWithBrowserAi({
+        question: request.question,
+        grounding: request.grounding,
+        history: messages.slice(-8).map((message) => ({
+          role: message.senderRole === "ASSISTANT" ? "assistant" as const : "user" as const,
+          content: message.body,
+        })),
+        onProgress: ({ percent, text: progressText }) => {
+          if (alive.current) setAiProgress(percent < 100 ? `Preparing your local AI: ${percent}%${progressText ? ` · ${progressText}` : ""}` : progressText);
+        },
+      });
+    } catch {
+      fallback = true;
+      if (alive.current) setAiProgress("Browser AI unavailable. Answering from your authorized workspace data…");
+    }
+    if (!alive.current) return;
+    const completed = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/ai-reply?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, ...(fallback ? { fallback: true } : { body: reply }), after: lastId.current }),
+    }));
+    if (!alive.current) return;
+    setConnected(true);
+    merge(completed.messages);
+  }
+  async function retryAiReply() {
+    if (!retryAi || sendInFlight.current || sending) return;
+    sendInFlight.current = true;
+    setSending(true); setError(""); setAiProgress("Retrying your answer…");
+    try {
+      await completeAi(retryAi);
+      if (alive.current) { setRetryAi(null); pendingId.current = null; }
+    } catch (cause) {
+      if (alive.current) setError(cause instanceof Error ? cause.message : "The AI answer could not be completed. Retry it.");
+    } finally {
+      sendInFlight.current = false;
+      if (alive.current) { setSending(false); setAiProgress(""); }
+    }
+  }
   async function send(text = body) {
     if (sendInFlight.current || sending || recording || requestingMic || !threadId || (!text.trim() && !files.length)) return;
     if (kind === "AI" && (!window.isSecureContext || !("gpu" in navigator) || typeof Worker === "undefined")) {
@@ -193,32 +241,17 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     try {
       const result = await jsonResponse<{ messages: ChatMessage[]; browserAi?: BrowserAiRequest }>(await fetch(`/api/v1/chat/threads/${threadId}/messages?${query}`, { method: "POST", body: form }));
       if (!alive.current) return;
+      setConnected(true);
       merge(result.messages);
+      setBody(""); setFiles([]);
+      requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
       if (kind === "AI") {
         if (!result.browserAi) throw new Error("The server did not prepare the browser AI request.");
-        const { answerWithBrowserAi } = await import("@/ai/browser-ai-client");
-        const reply = await answerWithBrowserAi({
-          question: result.browserAi.question,
-          grounding: result.browserAi.grounding,
-          history: messages.slice(-8).map((message) => ({
-            role: message.senderRole === "ASSISTANT" ? "assistant" as const : "user" as const,
-            content: message.body,
-          })),
-          onProgress: ({ percent, text: progressText }) => {
-            if (alive.current) setAiProgress(percent < 100 ? `Preparing your local AI: ${percent}%${progressText ? ` · ${progressText}` : ""}` : progressText);
-          },
-        });
-        if (!alive.current) return;
-        const completed = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/ai-reply?${query}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sourceMessageId: result.browserAi.sourceMessageId, clientMessageId: result.browserAi.clientMessageId, body: reply, after: lastId.current }),
-        }));
-        if (!alive.current) return;
-        merge(completed.messages);
+        setRetryAi(result.browserAi);
+        await completeAi(result.browserAi);
+        if (alive.current) setRetryAi(null);
       }
-      setBody(""); setFiles([]); pendingId.current = null;
-      requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
+      pendingId.current = null;
     } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : "The message or local AI reply could not be completed. Retry it."); }
     finally { sendInFlight.current = false; if (alive.current) { setSending(false); setAiProgress(""); } }
   }
@@ -259,13 +292,13 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
       {hasOlder ? <button type="button" className="chat-load-older" disabled={loadingOlder} onClick={() => void older()}>{loadingOlder ? "Loading…" : "Load older messages"}</button> : null}
       {loading ? <div className="chat-empty"><LoaderCircle className="chat-spinner" size={30} /><p>Loading saved messages…</p></div> : !messages.length ? <div className="chat-empty"><span>{kind === "AI" ? <Bot size={38} /> : <MessageSquareText size={38} />}</span><h2>{kind === "AI" ? "Real AI on your own GPU" : "Start the conversation"}</h2><p>{kind === "AI" ? "Ask naturally—even with spelling mistakes. AI Ultra reasons over the ClientLoop records you can access, and can also answer general questions from its built-in knowledge." : "Keep messages, feedback, and files together. Everyone in this company conversation can read the saved history."}</p>{kind === "AI" ? <div className="chat-prompts">{["Summarize progress", "How many posts are pending?", "List projects", "How many companies do I have?"].map((prompt) => <button type="button" disabled={!threadId || sending} key={prompt} onClick={() => void send(prompt)}>{prompt}</button>)}</div> : <small>Text · Images · Video · Voice · PDFs · Documents</small>}</div> : null}
       {messages.map((message) => <article key={message.id} className={`chat-message ${message.senderId === userId ? "own" : ""} ${message.senderRole === "ASSISTANT" ? "assistant" : ""}`}>
-        <div className="chat-message-author">{message.senderRole === "ASSISTANT" ? <Bot size={15} /> : null}<strong>{message.senderId === userId ? "You" : message.senderName}</strong><span>{message.senderRole === "ADMIN" ? "Admin" : message.senderRole === "ASSISTANT" ? "Browser GPU" : "Company"}</span></div>
+        <div className="chat-message-author">{message.senderRole === "ASSISTANT" ? <Bot size={15} /> : null}<strong>{message.senderId === userId ? "You" : message.senderName}</strong><span>{message.senderRole === "ADMIN" ? "Admin" : message.senderRole === "ASSISTANT" ? assistantSource(message) : "Company"}</span></div>
         <div className="chat-bubble">{message.body ? <p>{message.body}</p> : null}{message.attachments.map((attachment) => <Attachment attachment={attachment} companyId={companyId} key={attachment.id} />)}<RevisionSources message={message} isAdmin={isAdmin} /></div>
         <div className="chat-message-time"><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>{message.senderId === userId ? <span title="Saved to database"><CheckCheck size={13} /><span className="sr-only">Saved</span></span> : null}</div>
       </article>)}
       {sending ? <p className="chat-sending" role="status"><LoaderCircle className="chat-spinner" size={15} />{kind === "AI" ? aiProgress || "Starting your browser AI…" : "Saving your message…"}</p> : null}
     </div>
-    {error ? <div className="chat-error" role="alert"><span>{error}</span>{!threadId ? <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry</button> : null}<button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div> : null}
+    {error ? <div className="chat-error" role="alert"><span>{error}</span>{retryAi ? <button type="button" disabled={sending} onClick={() => void retryAiReply()}>Retry answer</button> : !threadId ? <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry</button> : null}<button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div> : null}
     <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       {files.length ? <div className="chat-pending-files">{files.map((file, index) => <span key={`${file.name}:${index}`}><Paperclip size={13} /><span>{file.name}<small>{formatBytes(file.size)}</small></span><button type="button" disabled={sending} aria-label={`Remove ${file.name}`} onClick={() => { setFiles((current) => current.filter((_, i) => i !== index)); pendingId.current = null; }}><X size={14} /></button></span>)}</div> : null}
       <div className="chat-compose-row">
