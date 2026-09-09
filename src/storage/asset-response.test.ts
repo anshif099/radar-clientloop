@@ -11,7 +11,10 @@ const asset = { storageKey: "private/file", originalName: "client design.pdf", m
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(objectSize).mockResolvedValue(bytes.length);
-  vi.mocked(readObject).mockImplementation(async (_key, range) => new Response(range ? bytes.subarray(range.start, range.end + 1) : bytes).body!);
+  vi.mocked(readObject).mockImplementation(async (_key, range) => {
+    const selected = range ? bytes.subarray(range.start, range.end + 1) : bytes;
+    return new Response(new Uint8Array(selected)).body!;
+  });
 });
 
 describe("private asset responses", () => {
