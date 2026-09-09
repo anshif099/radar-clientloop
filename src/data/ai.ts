@@ -3,7 +3,6 @@ import { and, count, desc, eq, gte, like, ne, or, sql } from "drizzle-orm";
 import { db, withPlatformAdmin } from "@/db/client";
 import { agencies, assets, divisions, feedbackEntries, reviewDecisions, versionAssets, workItems, workItemVersions } from "@/db/schema";
 import type { ChatScope } from "./chat";
-import type { LocalIntent } from "@/domain/local-ai";
 
 function itemScope(scope: ChatScope) {
   if (!scope.agencyId || !scope.workspaceId) throw new Error("FORBIDDEN");
@@ -22,11 +21,17 @@ export async function getAiCompanyOverview(scope: ChatScope) {
     return { total: Number(totals[0]?.total ?? 0), companies };
   });
 }
-export async function searchAiWorkspace(scope: ChatScope, intent: LocalIntent) {
-  const search = intent.query ? `%${intent.query.slice(0, 220).replace(/[\\%_]/g, "\\$&")}%` : null;
-  const where = and(itemScope(scope), intent.status ? eq(workItems.status, intent.status) : undefined,
-    intent.reviewDecision ? eq(sql`(select ${reviewDecisions.decision} from ${reviewDecisions} where ${reviewDecisions.agencyId} = ${scope.agencyId} and ${reviewDecisions.workspaceId} = ${scope.workspaceId} and ${reviewDecisions.workItemId} = ${workItems.id} and ${reviewDecisions.versionId} = ${workItems.currentVersionId} order by ${reviewDecisions.decidedAt} desc limit 1)`, intent.reviewDecision) : undefined,
-    intent.since ? gte(workItems.updatedAt, intent.since) : undefined,
+export interface AiWorkspaceFilter {
+  query: string;
+  status?: "APPROVED" | "AWAITING_CLIENT_REVIEW" | "REVISION_REQUIRED";
+  reviewDecision?: "REQUEST_CHANGES" | "REJECT";
+  since?: Date;
+}
+export async function searchAiWorkspace(scope: ChatScope, filter: AiWorkspaceFilter) {
+  const search = filter.query ? `%${filter.query.slice(0, 220).replace(/[\\%_]/g, "\\$&")}%` : null;
+  const where = and(itemScope(scope), filter.status ? eq(workItems.status, filter.status) : undefined,
+    filter.reviewDecision ? eq(sql`(select ${reviewDecisions.decision} from ${reviewDecisions} where ${reviewDecisions.agencyId} = ${scope.agencyId} and ${reviewDecisions.workspaceId} = ${scope.workspaceId} and ${reviewDecisions.workItemId} = ${workItems.id} and ${reviewDecisions.versionId} = ${workItems.currentVersionId} order by ${reviewDecisions.decidedAt} desc limit 1)`, filter.reviewDecision) : undefined,
+    filter.since ? gte(workItems.updatedAt, filter.since) : undefined,
     search ? or(like(workItems.title, search), like(workItems.description, search), like(divisions.name, search), like(workItems.category, search), like(workItems.subcategory, search)) : undefined);
   const [items, totals, projects] = await Promise.all([
     db.select({ id: workItems.id, title: workItems.title, status: workItems.status, project: divisions.name, currentVersionId: workItems.currentVersionId, updatedAt: workItems.updatedAt })
@@ -64,6 +69,28 @@ function clip(value: string | null, length = 500) {
   if (!value) return null;
   return value.length > length ? `${value.slice(0, length)}…` : value;
 }
+
+const applicationGuide = {
+  purpose: "ClientLoop is a content review portal where an agency and its clients manage projects, published creative work, revisions, feedback, and approvals.",
+  roles: [
+    "Admins can manage companies and projects, upload and publish work, review progress, and talk with clients.",
+    "Company users can access only their own company workspace, review published work, give feedback, request changes, approve or reject versions, download files, and use company chat.",
+  ],
+  workflow: [
+    "An admin creates a company and project, uploads a poster or other supported content, and publishes a version for client review.",
+    "The client reviews the current published version and can approve it, request changes, or reject it with feedback.",
+    "A revised upload creates another version, preserving the earlier versions and review history.",
+  ],
+  content: "Supported content includes images, videos, PDFs, Word and Excel documents, and website links. Categories and subcategories help organize work.",
+  conversations: "Company chat is shared between the agency and that company. AI Ultra conversations are private to the signed-in user and scoped to the selected company.",
+  ai: "AI Ultra runs an open-source language model in the user's browser with WebGPU. It can explain ClientLoop, answer from authorized workspace facts, summarize progress, discuss feedback and version history, and use a selected post as context. It cannot change records or reliably inspect pixels, document pages, audio, or video content.",
+  privacy: "Authentication, authorization, and database retrieval happen on the ClientLoop server. The browser model receives bounded authorized context without passwords, tokens, private storage paths, checksums, or internal-only feedback.",
+  statusMeaning: {
+    APPROVED: "The client approved the current published version.",
+    AWAITING_CLIENT_REVIEW: "The current published version is waiting for the client's decision.",
+    REVISION_REQUIRED: "The client requested changes or rejected the current version.",
+  },
+};
 
 /**
  * A deliberately bounded, authorization-scoped view of ClientLoop data for the
@@ -162,6 +189,7 @@ export async function getBrowserAiGrounding(scope: ChatScope, selectedWorkItemId
 
   return {
     generatedAt: new Date().toISOString(),
+    applicationGuide,
     access: { role: scope.role, selectedCompany: scope.companyName },
     companies: {
       total: companyOverview.total,

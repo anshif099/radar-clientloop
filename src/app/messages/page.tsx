@@ -20,7 +20,7 @@ export default async function MessagesPage({ searchParams }: { searchParams: Pro
   let initialPosts: Array<{ id: string; title: string }> = [];
   if (context && selected) {
     const scope: ChatScope = { agencyId: context.agencyId, workspaceId: context.workspaceId, companyName: context.agencyName, userId: session.user.id, userName: session.user.name, role: "COMPANY" };
-    initialPosts = (await searchAiWorkspace(scope, { kind: "search", query: "" })).items;
+    initialPosts = (await searchAiWorkspace(scope, { query: "" })).items;
   }
   return <ChatWorkspace key={selected?.id ?? "empty"} companies={companies} companyId={selected?.id ?? ""} userId={session.user.id} isAdmin={isAdmin} initialKind={params.mode === "ai" ? "AI" : "COMPANY"} initialPostId={params.post ?? ""} initialPosts={initialPosts} />;
 }

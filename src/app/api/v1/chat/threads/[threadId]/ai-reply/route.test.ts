@@ -2,12 +2,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/auth/server", () => ({ requireRequestSession: vi.fn() }));
-vi.mock("@/ai/local-assistant", () => ({ answerLocally: vi.fn() }));
 vi.mock("@/data/companies", () => ({ getCompanyForAdmin: vi.fn(), getCompanyContextForIdentity: vi.fn() }));
 vi.mock("@/data/chat", () => ({ getChatThread: vi.fn(), getUserChatMessage: vi.fn(), listChatMessages: vi.fn(), saveChatMessage: vi.fn() }));
 
 import { requireRequestSession } from "@/auth/server";
-import { answerLocally } from "@/ai/local-assistant";
 import { getCompanyContextForIdentity } from "@/data/companies";
 import { getChatThread, getUserChatMessage, listChatMessages, saveChatMessage } from "@/data/chat";
 import { browserAiModel } from "@/domain/browser-ai";
@@ -21,7 +19,7 @@ function request(overrides: Record<string, unknown> = {}) {
   return new Request(`https://app.test/ai-reply?companyId=a`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sourceMessageId: 7, clientMessageId, body: "There is 1 company.", after: 7, ...overrides }),
+    body: JSON.stringify({ sourceMessageId: 7, clientMessageId, body: "There is 1 company.", model: browserAiModel, after: 7, ...overrides }),
   });
 }
 
@@ -33,19 +31,6 @@ beforeEach(() => {
   vi.mocked(getUserChatMessage).mockResolvedValue({ id: 7, body: "How many companies do I have?", clientMessageId, metadata: {}, senderId: "user-a" } as Awaited<ReturnType<typeof getUserChatMessage>>);
   vi.mocked(saveChatMessage).mockResolvedValue({ id: 8, body: "There is 1 company.", metadata: {}, created: true });
   vi.mocked(listChatMessages).mockResolvedValue({ messages: [], hasMore: false });
-  vi.mocked(answerLocally).mockResolvedValue({ body: "You have 1 active company: Company A.", metadata: { engine: "clientloop-local-v1" } });
-});
-
-it("creates a workspace-data fallback reply when the browser model is unavailable", async () => {
-  const response = await POST(request({ body: undefined, fallback: true }), context);
-  expect(response.status).toBe(201);
-  expect(answerLocally).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-a" }), "How many companies do I have?", undefined);
-  expect(saveChatMessage).toHaveBeenCalledWith(expect.anything(), threadId, {
-    body: "You have 1 active company: Company A.",
-    clientMessageId,
-    assistant: true,
-    metadata: { engine: "clientloop-local-fallback", sourceMessageId: 7 },
-  });
 });
 
 it("saves a verified browser-generated reply with engine metadata", async () => {
@@ -58,6 +43,11 @@ it("saves a verified browser-generated reply with engine metadata", async () => 
     assistant: true,
     metadata: { engine: "webllm-webgpu", model: browserAiModel, sourceMessageId: 7 },
   });
+});
+
+it("rejects replies claiming an unapproved browser model", async () => {
+  expect((await POST(request({ model: "unknown-model" }), context)).status).toBe(400);
+  expect(saveChatMessage).not.toHaveBeenCalled();
 });
 
 it("rejects a reply that does not match the original user's retry id", async () => {

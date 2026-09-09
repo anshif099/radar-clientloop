@@ -174,30 +174,23 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     pendingId.current = null;
   }
   async function completeAi(request: BrowserAiRequest) {
-    let reply = "";
-    let fallback = false;
-    try {
-      const { answerWithBrowserAi } = await import("@/ai/browser-ai-client");
-      reply = await answerWithBrowserAi({
-        question: request.question,
-        grounding: request.grounding,
-        history: messages.slice(-8).map((message) => ({
-          role: message.senderRole === "ASSISTANT" ? "assistant" as const : "user" as const,
-          content: message.body,
-        })),
-        onProgress: ({ percent, text: progressText }) => {
-          if (alive.current) setAiProgress(percent < 100 ? `Preparing your local AI: ${percent}%${progressText ? ` · ${progressText}` : ""}` : progressText);
-        },
-      });
-    } catch {
-      fallback = true;
-      if (alive.current) setAiProgress("Browser AI unavailable. Answering from your authorized workspace data…");
-    }
+    const { answerWithBrowserAi } = await import("@/ai/browser-ai-client");
+    const reply = await answerWithBrowserAi({
+      question: request.question,
+      grounding: request.grounding,
+      history: messages.slice(-8).map((message) => ({
+        role: message.senderRole === "ASSISTANT" ? "assistant" as const : "user" as const,
+        content: message.body,
+      })),
+      onProgress: ({ percent, text: progressText }) => {
+        if (alive.current) setAiProgress(percent < 100 ? `Preparing your local AI: ${percent}%${progressText ? ` · ${progressText}` : ""}` : progressText);
+      },
+    });
     if (!alive.current) return;
     const completed = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/ai-reply?${query}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, ...(fallback ? { fallback: true } : { body: reply }), after: lastId.current }),
+      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, body: reply.body, model: reply.model, after: lastId.current }),
     }));
     if (!alive.current) return;
     setConnected(true);

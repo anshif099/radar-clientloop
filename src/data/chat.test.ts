@@ -39,13 +39,13 @@ it("rejects a revision lookup outside the authenticated workspace", async () => 
   expect(query).toHaveBeenCalledOnce();
 });
 it("applies scope to search, totals, and projects and parameterizes search text", async () => {
-  await searchAiWorkspace(scope, { kind: "search", query: "' OR 1=1; --_%" });
+  await searchAiWorkspace(scope, { query: "' OR 1=1; --_%" });
   expect(query).toHaveBeenCalledTimes(3);
   assertScopeOnQueries();
   for (const [configuration] of query.mock.calls) expect(configuration.sql).not.toContain("OR 1=1");
 });
 it("rejects an empty workspace before querying", async () => {
   await expect(getChatThread({ ...scope, workspaceId: "" }, "thread")).rejects.toThrow("FORBIDDEN");
-  await expect(searchAiWorkspace({ ...scope, workspaceId: "" }, { kind: "summary", query: "" })).rejects.toThrow("FORBIDDEN");
+  await expect(searchAiWorkspace({ ...scope, workspaceId: "" }, { query: "" })).rejects.toThrow("FORBIDDEN");
   expect(query).not.toHaveBeenCalled();
 });
