@@ -29,6 +29,12 @@ it("answers company-count questions directly instead of searching posts", async 
   expect(reply.body).toBe("You have 2 active companies: Company A, Company B.");
   expect(searchAiWorkspace).not.toHaveBeenCalled();
 });
+it.each(["How many companines I have?", "count my compaines", "show my compnay"])("understands a misspelled company-count question: %s", async (question) => {
+  vi.mocked(getAiCompanyOverview).mockResolvedValue({ total: 1, companies: [{ id: "a", name: "Company A" }] });
+  const reply = await answerLocally({ ...scope, role: "ADMIN" }, question);
+  expect(reply.body).toBe("You have 1 active company: Company A.");
+  expect(searchAiWorkspace).not.toHaveBeenCalled();
+});
 it("compares real file bytes and dimensions and preserves unverified requests", async () => {
   const network = vi.spyOn(globalThis, "fetch");
   try {

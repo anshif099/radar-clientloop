@@ -6,6 +6,32 @@ export interface LocalIntent {
   query: string;
   since?: Date;
 }
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex++) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex++) {
+      const above = previous[rightIndex];
+      previous[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + 1,
+        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function mentionsCompany(text: string) {
+  return text.match(/[a-z]+/g)?.some((word) =>
+    /^(clients?|accounts?)$/.test(word)
+    || ["company", "companies"].some((candidate) => editDistance(word, candidate) <= 2),
+  ) ?? false;
+}
+
 export function interpretQuestion(question: string, now = new Date()): LocalIntent {
   const text = question.toLowerCase().normalize("NFKC").trim();
   const status = /\b(unapproved|not approved|pending|awaiting)\b/.test(text) ? "AWAITING_CLIENT_REVIEW"
@@ -28,7 +54,7 @@ export function interpretQuestion(question: string, now = new Date()): LocalInte
   if (/\b(analy[sz]e|analize|compare|check|perfect|missing|fixed|satisfied|review|v\d+|version \d+)\b/.test(text) && !/awaiting review|pending review/.test(text)) return { kind: "review", query, status, since };
   if (/\b(feedback|suggestions?|client.*request|client.*changes|requested changes)\b/.test(text)) return { kind: "feedback", query: "" };
   if (/\b(help|how (do|can|to)|what can|who are)\b/.test(text)) return { kind: "help", query: "" };
-  if (/\b(companies|company|clients?|accounts?)\b/.test(text) && /\b(how many|count|total|list|show|have|overview)\b/.test(text)) return { kind: "companies", query: "" };
+  if (mentionsCompany(text) && /\b(how many|count|total|list|show|have|overview)\b/.test(text)) return { kind: "companies", query: "" };
   if (/\b(projects|campaigns)\b/.test(text) && !/\b(posts?|posters?|items?)\b/.test(text)) return { kind: "projects", query: "", since };
   if (/\b(how many|count|total|summary|summari[sz]e|overview|progress|status)\b/.test(text)) return { kind: "summary", query: "", status, reviewDecision, since };
   return { kind: "search", query, status, reviewDecision, since };
