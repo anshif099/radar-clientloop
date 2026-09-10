@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { assertChatOrigin, chatError, ChatInputError, requireChatScope } from "@/auth/chat";
 import { getChatThread, listChatMessages, saveChatMessage, type NewChatAttachment } from "@/data/chat";
-import { getAiWorkItem, getBrowserAiGrounding } from "@/data/ai";
 import { detectChatUpload } from "@/domain/chat-upload";
 import { maxChatBytes, maxChatFiles, maxChatText } from "@/domain/chat";
 import { deleteObject, putObject } from "@/storage/filesystem";
@@ -37,29 +36,16 @@ export async function POST(request: Request, context: Context) {
     const form = await request.formData();
     const body = formText(form, "body");
     const clientMessageId = formText(form, "clientMessageId");
-    const useBrowserAi = formText(form, "browserAi") === "1";
     const afterValue = formText(form, "after");
     const after = afterValue ? Number(afterValue) : undefined;
     if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) throw new ChatInputError("Invalid history cursor.");
-    let workItemId = formText(form, "workItemId");
     if (!z.uuid().safeParse(clientMessageId).success) throw new ChatInputError("A message retry identifier is required.");
-    if (workItemId && !z.uuid().safeParse(workItemId).success) throw new ChatInputError("Invalid post identifier.");
     const entries = form.getAll("files");
     if (entries.some((entry) => !(entry instanceof File))) throw new ChatInputError("Invalid attachment.");
     const files = entries as File[];
     if ((!body && !files.length) || body.length > maxChatText) throw new ChatInputError("Enter a message up to 8,000 characters or attach a file.");
     if (files.length > maxChatFiles || files.reduce((sum, file) => sum + file.size, 0) > maxChatBytes) throw new ChatInputError("Attach up to 5 files totaling 100 MB or less.");
-    if (thread.kind === "AI" && files.length) throw new ChatInputError("Share attachments in company chat. For AI revision checks, choose a published post.");
-    if (thread.kind === "AI" && !useBrowserAi) throw new ChatInputError("AI Ultra requires on-device browser AI mode.");
-    if (thread.kind === "AI") {
-      if (!workItemId) {
-        const history = await listChatMessages(scope, threadId);
-        // Resolve follow-ups from persisted history, never from another user's room.
-        const previous = [...history.messages].reverse().find((message) => typeof message.metadata.workItemId === "string");
-        if (/\b(it|that|this|version|v\d+)\b/i.test(body)) workItemId = String(previous?.metadata.workItemId ?? "");
-      }
-      if (workItemId) await getAiWorkItem(scope, workItemId);
-    }
+    if (thread.kind !== "COMPANY") throw new ChatInputError("This AI conversation is no longer available. Use company chat, writing correction, or the revision checker.");
     const attachments: NewChatAttachment[] = [];
     for (const file of files) {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -72,18 +58,9 @@ export async function POST(request: Request, context: Context) {
       const originalName = [...file.name].map((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127 || "/\\".includes(character) ? "_" : character).join("").slice(0, 255);
       attachments.push({ id, storageKey, originalName, mimeType: detected.mimeType, sizeBytes: file.size, checksumSha256: createHash("sha256").update(bytes).digest("hex") });
     }
-    const saved = await saveChatMessage(scope, threadId, { body, clientMessageId, attachments, metadata: workItemId ? { workItemId } : {} });
+    const saved = await saveChatMessage(scope, threadId, { body, clientMessageId, attachments });
     committed = saved.created;
     if (!saved.created) await Promise.all(stored.map((key) => deleteObject(key).catch(() => undefined)));
-    if (thread.kind === "AI") {
-      const selectedWorkItemId = typeof saved.metadata.workItemId === "string" ? saved.metadata.workItemId : undefined;
-      const grounding = await getBrowserAiGrounding(scope, selectedWorkItemId);
-      return Response.json({
-        messageId: saved.id,
-        browserAi: { question: saved.body, sourceMessageId: saved.id, clientMessageId, grounding },
-        ...(await listChatMessages(scope, threadId, { after })),
-      }, { status: saved.created ? 201 : 200, headers: { "Cache-Control": "private, no-store" } });
-    }
     return Response.json({ messageId: saved.id, ...(await listChatMessages(scope, threadId, { after })) }, { status: saved.created ? 201 : 200, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     if (!committed) await Promise.all(stored.map((key) => deleteObject(key).catch(() => undefined)));

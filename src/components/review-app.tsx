@@ -31,6 +31,7 @@ import { PwaInstall } from "./pwa-install";
 import { AssetPreview } from "./asset-preview";
 import { assetActionHref, type ContentType } from "@/domain/asset-types";
 import { CategoryFilters } from "./work-categories";
+import { WritingAssistant } from "./writing-assistant";
 import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
 
 export type Decision = "pending" | "approved" | "changes" | "rejected";
@@ -133,7 +134,7 @@ function Sidebar({ view, onChange }: { view: WorkspaceView; onChange: (view: Wor
         <button className={view === "review" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("review")}><Home size={21} strokeWidth={2.4} /><span>Review</span></button>
         <button className={view === "dashboard" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("dashboard")}><BarChart3 size={21} /><span>Dashboard</span></button>
         <button className={view === "downloads" ? "nav-item active" : "nav-item"} type="button" onClick={() => onChange("downloads")}><Download size={21} /><span>Downloads</span></button>
-        <Link className="nav-item" href="/messages"><MessageCircleMore size={21} /><span>Messages & AI</span></Link>
+        <Link className="nav-item" href="/messages"><MessageCircleMore size={21} /><span>Messages</span></Link>
       </nav>
       <div className="sidebar-bottom"><PwaInstall /><SignOutButton /></div>
     </aside>
@@ -196,7 +197,8 @@ function FeedbackSheet({ item, decision, busy, onClose, onSubmit }: {
         </div>
         <p className="sheet-intro">Write in English, Manglish, Malayalam, or any language. Your feedback is stored against this version.</p>
         <label className="feedback-label" htmlFor="feedback-note">Feedback</label>
-        <textarea id="feedback-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Describe the required correction…" autoFocus />
+        <textarea id="feedback-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Describe the required correction…" maxLength={8000} autoFocus spellCheck />
+        <WritingAssistant value={note} onApply={setNote} context="feedback" disabled={busy} />
         {showValidation && !note.trim() ? <p className="field-error">Please add feedback before sending.</p> : null}
         <button className={decision === "rejected" ? "submit-feedback reject-submit" : "submit-feedback"} type="button" disabled={busy} onClick={() => note.trim() ? onSubmit(note) : setShowValidation(true)}>
           <Send size={18} />{busy ? "Sending…" : decision === "changes" ? "Send change request" : "Reject poster"}
@@ -228,7 +230,6 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
         <p className="work-classification">{workClassificationLabel(item)}</p>
         <div className="engagement-row"><span><MessageCircleMore size={18} /> {item.comments} reviews</span></div>
         {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
-        <Link className="chat-review-link" href={`/messages?mode=ai&post=${item.id}`}><Sparkles size={16} />Review with AI Ultra</Link>
         {item.decision === "approved" ? (
           <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This item is ready to use.</span></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={item.contentType === "website" ? "Open approved website" : "Download approved file"}>{item.contentType === "website" ? <ExternalLink size={19} /> : <Download size={19} />}</a></div>
         ) : item.decision === "changes" ? (

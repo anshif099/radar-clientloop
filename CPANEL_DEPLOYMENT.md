@@ -37,7 +37,7 @@ Replace `CPANEL_USER` with the current cPanel username. Do not create a public U
 
 ## 4. Create the Node.js application
 
-Chat attachments use this same private uploads directory. Back it up together with the database. After deploying the chat update, run `npm run db:migrate` to apply `0004_chat_and_local_ai.sql`. AI Ultra uses no OpenAI key or remote inference service: an open-source model runs inside each user’s browser, preferring WebGPU and falling back to CPU/WebAssembly when no compatible GPU is available. cPanel only authenticates the user, reads authorized MySQL data, and saves the conversation. The first AI use downloads and caches model files in that user’s browser, so clients must be allowed to reach the model hosting URLs. Keep the runtime `sharp` dependency installed for existing file processing.
+Chat attachments use this same private uploads directory. Back it up together with the database. After deploying the chat update, run `npm run db:migrate` to apply `0004_chat_and_local_ai.sql`. Writing correction and revision comparison are deterministic local functions and require no AI service or API credentials. Keep the runtime `sharp` dependency installed for image comparison and existing file processing.
 
 Open **Setup Node.js App** and select **Create Application**:
 

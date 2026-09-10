@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import { db, withAgency } from "@/db/client";
 import { auditEvents, chatAttachments, chatMessages, chatThreads } from "@/db/schema";
 import type { ChatKind, ChatMessage } from "@/domain/chat";
@@ -35,19 +35,6 @@ export async function getChatThread(scope: ChatScope, threadId: string) {
   if (!thread) throw new Error("NOT_FOUND");
   return thread;
 }
-export async function getUserChatMessage(scope: ChatScope, threadId: string, messageId: number) {
-  await getChatThread(scope, threadId);
-  const [row] = await db.select({ message: chatMessages }).from(chatMessages)
-    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
-    .where(and(
-      threadScope(scope),
-      eq(chatMessages.threadId, threadId),
-      eq(chatMessages.id, messageId),
-      eq(chatMessages.senderId, scope.userId),
-      ne(chatMessages.senderRole, "ASSISTANT"),
-    )).limit(1);
-  return row?.message ?? null;
-}
 export async function listChatMessages(scope: ChatScope, threadId: string, cursor: { before?: number; after?: number } = {}) {
   await getChatThread(scope, threadId);
   const rows = await db.select({ message: chatMessages }).from(chatMessages)
@@ -69,24 +56,24 @@ export async function listChatMessages(scope: ChatScope, threadId: string, curso
 export type NewChatAttachment = Omit<typeof chatAttachments.$inferInsert, "messageId">;
 export async function saveChatMessage(scope: ChatScope, threadId: string, input: {
   body: string; clientMessageId: string; attachments?: NewChatAttachment[];
-  assistant?: boolean; metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }) {
   return withAgency(scope.agencyId, async (tx) => {
     // Serialize retries within a room so a lost HTTP response never duplicates a message.
     const [thread] = await tx.select().from(chatThreads).where(and(threadScope(scope), eq(chatThreads.id, threadId))).limit(1).for("update");
-    if (!thread || (input.assistant && thread.kind !== "AI")) throw new Error("NOT_FOUND");
-    const senderId = input.assistant ? "clientloop-ai-ultra" : scope.userId;
+    if (!thread || thread.kind !== "COMPANY") throw new Error("NOT_FOUND");
+    const senderId = scope.userId;
     const [existing] = await tx.select({ id: chatMessages.id, body: chatMessages.body, metadata: chatMessages.metadata }).from(chatMessages)
       .where(and(eq(chatMessages.threadId, threadId), eq(chatMessages.senderId, senderId), eq(chatMessages.clientMessageId, input.clientMessageId))).limit(1);
     if (existing) return { ...existing, created: false };
     const [message] = await tx.insert(chatMessages).values({
-      threadId, senderId, senderName: input.assistant ? "ClientLoop AI Ultra" : scope.userName.slice(0, 160),
-      senderRole: input.assistant ? "ASSISTANT" : scope.role,
+      threadId, senderId, senderName: scope.userName.slice(0, 160),
+      senderRole: scope.role,
       body: input.body, clientMessageId: input.clientMessageId, metadata: input.metadata ?? {},
     }).$returningId();
     if (input.attachments?.length) await tx.insert(chatAttachments).values(input.attachments.map((attachment) => ({ ...attachment, messageId: message.id })));
     await tx.update(chatThreads).set({ updatedAt: new Date() }).where(and(threadScope(scope), eq(chatThreads.id, threadId)));
-    await tx.insert(auditEvents).values({ agencyId: scope.agencyId, workspaceId: scope.workspaceId, actorType: input.assistant ? "LOCAL_ASSISTANT" : scope.role, actorId: scope.userId,
+    await tx.insert(auditEvents).values({ agencyId: scope.agencyId, workspaceId: scope.workspaceId, actorType: scope.role, actorId: scope.userId,
       action: "CHAT_MESSAGE_CREATED", resourceType: "CHAT_THREAD", resourceId: threadId, metadata: { messageId: message.id, attachmentCount: input.attachments?.length ?? 0 } });
     return { id: message.id, body: input.body, metadata: input.metadata ?? {}, created: true };
   });

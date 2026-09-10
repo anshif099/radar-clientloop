@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Bot, CheckCheck, Download, FileText, LoaderCircle, MessageSquareText, Mic, Paperclip, Send, ShieldCheck, Square, X } from "lucide-react";
+import { ArrowLeft, CheckCheck, Download, FileText, LoaderCircle, MessageSquareText, Mic, Paperclip, Send, ShieldCheck, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { chatAccept, maxChatBytes, maxChatFiles, maxChatText, type ChatAttachment, type ChatKind, type ChatMessage } from "@/domain/chat";
-import type { BrowserAiRequest } from "@/domain/browser-ai";
+import { chatAccept, maxChatBytes, maxChatFiles, maxChatText, type ChatAttachment, type ChatMessage } from "@/domain/chat";
+import { WritingAssistant } from "./writing-assistant";
 
-type Post = { id: string; title: string };
 function formatBytes(bytes: number) { return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`; }
 async function jsonResponse<T>(response: Response): Promise<T> {
   const result = await response.json().catch(() => ({ message: "The server could not complete this request." }));
@@ -31,36 +30,29 @@ function RevisionSources({ message, isAdmin }: { message: ChatMessage; isAdmin: 
     return <a key={value.assetId} href={`/api/v1/${isAdmin ? "admin" : "company"}/assets/${encodeURIComponent(value.assetId)}`} target="_blank" rel="noopener noreferrer">Open version {value.versionNumber}</a>;
   })}</div>;
 }
-function assistantSource(message: ChatMessage) {
-  return message.metadata.engine === "webllm-webgpu" ? "Browser GPU" : message.metadata.engine === "transformers-wasm" ? "Browser CPU" : "Workspace assistant";
-}
-
-export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, isAdmin, initialKind, initialPostId, initialPosts }: {
+export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, isAdmin }: {
   companies: Array<{ id: string; name: string }>; companyId: string; userId: string; isAdmin: boolean;
-  initialKind: ChatKind; initialPostId: string; initialPosts: Post[];
 }) {
-  const [kind, setKind] = useState(initialKind);
   const company = companies.find(({ id }) => id === initialCompanyId);
   return <main className="chat-shell">
     <aside className="chat-sidebar">
       <Link className="chat-back" href={isAdmin ? "/admin" : "/company"}><ArrowLeft size={18} />Back to workspace</Link>
       <div className="chat-brand"><img src="/brand/app-icon.svg" alt="" width="40" height="40" /><div><strong>ClientLoop</strong><span>Conversations</span></div></div>
-      {isAdmin ? <label className="chat-company-select">Company<select aria-label="Chat company" value={initialCompanyId} onChange={(event) => { window.location.assign(`/messages?companyId=${encodeURIComponent(event.target.value)}&mode=${kind === "AI" ? "ai" : "chat"}`); }}>
+      {isAdmin ? <label className="chat-company-select">Company<select aria-label="Chat company" value={initialCompanyId} onChange={(event) => { window.location.assign(`/messages?companyId=${encodeURIComponent(event.target.value)}`); }}>
         {companies.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}
       </select></label> : <p className="chat-company-name">{company?.name}</p>}
       <nav className="chat-tabs" aria-label="Conversations">
-        <button type="button" aria-pressed={kind === "COMPANY"} className={kind === "COMPANY" ? "active" : ""} onClick={() => setKind("COMPANY")}><MessageSquareText size={22} /><span><strong>Company chat</strong><small>{isAdmin ? "Talk with your client" : "Talk with Rainhopes"}</small></span></button>
-        <button type="button" aria-pressed={kind === "AI"} className={kind === "AI" ? "active ai" : ""} onClick={() => setKind("AI")}><Bot size={23} /><span><strong>AI Ultra <em>ON DEVICE</em></strong><small>Powered by your GPU or CPU</small></span></button>
+        <span className="active"><MessageSquareText size={22} /><span><strong>Company chat</strong><small>{isAdmin ? "Talk with your client" : "Talk with Rainhopes"}</small></span></span>
       </nav>
-      <div className="chat-privacy"><ShieldCheck size={20} /><p>The open-source AI runs inside your browser using your GPU or CPU. Your questions and authorized company data are not sent to an AI provider.</p></div>
+      <div className="chat-privacy"><ShieldCheck size={20} /><p>This conversation is private to your company workspace. Use Check writing before sending when you want spelling and grammar help.</p></div>
     </aside>
-    {company ? <ChatRoom key={`${company.id}:${kind}`} companyId={company.id} companyName={company.name} userId={userId} isAdmin={isAdmin} kind={kind} initialPostId={initialPostId} initialPosts={initialPosts} />
+    {company ? <ChatRoom key={company.id} companyId={company.id} companyName={company.name} userId={userId} isAdmin={isAdmin} />
       : <section className="chat-empty"><MessageSquareText size={44} /><h1>No company yet</h1><p>Create a company to start chatting.</p><Link href="/admin">Go to admin</Link></section>}
   </main>;
 }
 
-function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId, initialPosts }: {
-  companyId: string; companyName: string; userId: string; isAdmin: boolean; kind: ChatKind; initialPostId: string; initialPosts: Post[];
+function ChatRoom({ companyId, companyName, userId, isAdmin }: {
+  companyId: string; companyName: string; userId: string; isAdmin: boolean;
 }) {
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -73,12 +65,8 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
-  const [aiProgress, setAiProgress] = useState("");
-  const [retryAi, setRetryAi] = useState<BrowserAiRequest | null>(null);
   const [recording, setRecording] = useState(false);
   const [requestingMic, setRequestingMic] = useState(false);
-  const [postId, setPostId] = useState(initialPostId);
-  const [posts, setPosts] = useState(initialPosts);
   const lastId = useRef(0);
   const pendingId = useRef<string | null>(null);
   const pendingFingerprint = useRef("");
@@ -128,7 +116,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     async function start() {
       setLoading(true); setError("");
       try {
-        const result = await jsonResponse<{ thread: { id: string } }>(await fetch(`/api/v1/chat/threads?${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }), signal: controller.signal }));
+        const result = await jsonResponse<{ thread: { id: string } }>(await fetch(`/api/v1/chat/threads?${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "COMPANY" }), signal: controller.signal }));
         if (controller.signal.aborted) return;
         setThreadId(result.thread.id);
         await refresh(result.thread.id, true);
@@ -136,21 +124,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     }
     void start();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [kind, query, retry]);
-  useEffect(() => {
-    if (kind !== "AI") return;
-    const controller = new AbortController();
-    void (async () => {
-      const all: Post[] = [];
-      let after: string | null = null;
-      do {
-        const result: { posts: Post[]; next: string | null } = await jsonResponse(await fetch(`/api/v1/chat/posts?${query}${after ? `&after=${after}` : ""}`, { signal: controller.signal, cache: "no-store" }));
-        all.push(...result.posts); after = result.next;
-      } while (after && !controller.signal.aborted);
-      if (!controller.signal.aborted) setPosts(all.sort((a, b) => a.title.localeCompare(b.title)));
-    })().catch(() => { if (!controller.signal.aborted) setError("Could not load posts. Reopen AI Ultra to retry."); });
-    return () => controller.abort();
-  }, [kind, query]);
+  }, [query, retry]);
 
   async function older() {
     if (!messages.length || loadingOlder) return;
@@ -173,52 +147,11 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     });
     pendingId.current = null;
   }
-  async function completeAi(request: BrowserAiRequest) {
-    const { answerWithBrowserAi } = await import("@/ai/browser-ai-client");
-    const reply = await answerWithBrowserAi({
-      question: request.question,
-      grounding: request.grounding,
-      history: messages.slice(-8).map((message) => ({
-        role: message.senderRole === "ASSISTANT" ? "assistant" as const : "user" as const,
-        content: message.body,
-      })),
-      onProgress: ({ percent, text: progressText }) => {
-        if (alive.current) setAiProgress(percent < 100 ? `Preparing your local AI: ${percent}%${progressText ? ` · ${progressText}` : ""}` : progressText);
-      },
-    });
-    if (!alive.current) return;
-    const completed = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/ai-reply?${query}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceMessageId: request.sourceMessageId, clientMessageId: request.clientMessageId, body: reply.body, engine: reply.engine, model: reply.model, after: lastId.current }),
-    }));
-    if (!alive.current) return;
-    setConnected(true);
-    merge(completed.messages);
-  }
-  async function retryAiReply() {
-    if (!retryAi || sendInFlight.current || sending) return;
-    sendInFlight.current = true;
-    setSending(true); setError(""); setAiProgress("Retrying your answer…");
-    try {
-      await completeAi(retryAi);
-      if (alive.current) { setRetryAi(null); pendingId.current = null; }
-    } catch (cause) {
-      if (alive.current) setError(cause instanceof Error ? cause.message : "The AI answer could not be completed. Retry it.");
-    } finally {
-      sendInFlight.current = false;
-      if (alive.current) { setSending(false); setAiProgress(""); }
-    }
-  }
   async function send(text = body) {
     if (sendInFlight.current || sending || recording || requestingMic || !threadId || (!text.trim() && !files.length)) return;
-    if (kind === "AI" && (!window.isSecureContext || typeof Worker === "undefined")) {
-      setError("AI Ultra needs HTTPS and a browser with Web Worker support.");
-      return;
-    }
     sendInFlight.current = true;
-    setSending(true); setError(""); setAiProgress(kind === "AI" ? "Reading your authorized ClientLoop data…" : "");
-    const fingerprint = JSON.stringify([text, postId, files.map((file) => [file.name, file.size, file.lastModified])]);
+    setSending(true); setError("");
+    const fingerprint = JSON.stringify([text, files.map((file) => [file.name, file.size, file.lastModified])]);
     if (fingerprint !== pendingFingerprint.current) pendingId.current = null;
     pendingFingerprint.current = fingerprint;
     pendingId.current ??= crypto.randomUUID();
@@ -226,27 +159,17 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     const form = new FormData();
     form.set("body", text); form.set("clientMessageId", clientMessageId);
     form.set("after", String(lastId.current));
-    if (kind === "AI") {
-      form.set("browserAi", "1");
-      if (postId) form.set("workItemId", postId);
-    }
     files.forEach((file) => form.append("files", file));
     try {
-      const result = await jsonResponse<{ messages: ChatMessage[]; browserAi?: BrowserAiRequest }>(await fetch(`/api/v1/chat/threads/${threadId}/messages?${query}`, { method: "POST", body: form }));
+      const result = await jsonResponse<{ messages: ChatMessage[] }>(await fetch(`/api/v1/chat/threads/${threadId}/messages?${query}`, { method: "POST", body: form }));
       if (!alive.current) return;
       setConnected(true);
       merge(result.messages);
       setBody(""); setFiles([]);
       requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; });
-      if (kind === "AI") {
-        if (!result.browserAi) throw new Error("The server did not prepare the browser AI request.");
-        setRetryAi(result.browserAi);
-        await completeAi(result.browserAi);
-        if (alive.current) setRetryAi(null);
-      }
       pendingId.current = null;
-    } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : "The message or local AI reply could not be completed. Retry it."); }
-    finally { sendInFlight.current = false; if (alive.current) { setSending(false); setAiProgress(""); } }
+    } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : "The message could not be sent. Retry it."); }
+    finally { sendInFlight.current = false; if (alive.current) setSending(false); }
   }
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { setError("Voice recording requires HTTPS and a supported browser. You can attach an audio file instead."); return; }
@@ -278,29 +201,29 @@ function ChatRoom({ companyId, companyName, userId, isAdmin, kind, initialPostId
     finally { if (alive.current) setRequestingMic(false); }
   }
 
-  return <section className={`chat-room ${kind === "AI" ? "chat-ai-room" : ""}`} aria-label={kind === "AI" ? "ClientLoop AI Ultra" : "Company chat"}>
-    <header className="chat-room-header"><span className="chat-room-avatar">{kind === "AI" ? <Bot size={26} /> : <MessageSquareText size={25} />}</span><div><h1>{kind === "AI" ? "ClientLoop AI Ultra" : companyName}</h1><p>{loading ? "Loading history…" : !connected ? "Reconnecting…" : kind === "AI" ? "Open-source browser AI · Uses your GPU or CPU · Private to you" : "Company chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
-    {kind === "AI" ? <div className="chat-ai-context"><label>Post to discuss<select aria-label="Post to discuss" value={postId} disabled={sending} onChange={(event) => { setPostId(event.target.value); pendingId.current = null; }}><option value="">Company overview</option>{postId && !posts.some((post) => post.id === postId) ? <option value={postId}>Selected post</option> : null}{posts.map((post) => <option value={post.id} key={post.id}>{post.title}</option>)}</select></label><button type="button" disabled={!postId || sending || !threadId || loading} onClick={() => void send("Analyze the latest version against the client’s requested changes. What is missing?")}><Bot size={16} />Check revision</button></div> : null}
+  return <section className="chat-room" aria-label="Company chat">
+    <header className="chat-room-header"><span className="chat-room-avatar"><MessageSquareText size={25} /></span><div><h1>{companyName}</h1><p>{loading ? "Loading history…" : !connected ? "Reconnecting…" : "Company chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
     <div className="chat-timeline" ref={scroll} role="log" aria-label="Message history" aria-live="polite" aria-busy={loading}>
       {hasOlder ? <button type="button" className="chat-load-older" disabled={loadingOlder} onClick={() => void older()}>{loadingOlder ? "Loading…" : "Load older messages"}</button> : null}
-      {loading ? <div className="chat-empty"><LoaderCircle className="chat-spinner" size={30} /><p>Loading saved messages…</p></div> : !messages.length ? <div className="chat-empty"><span>{kind === "AI" ? <Bot size={38} /> : <MessageSquareText size={38} />}</span><h2>{kind === "AI" ? "Real AI on your own GPU" : "Start the conversation"}</h2><p>{kind === "AI" ? "Ask naturally—even with spelling mistakes. AI Ultra reasons over the ClientLoop records you can access, and can also answer general questions from its built-in knowledge." : "Keep messages, feedback, and files together. Everyone in this company conversation can read the saved history."}</p>{kind === "AI" ? <div className="chat-prompts">{["Summarize progress", "How many posts are pending?", "List projects", "How many companies do I have?"].map((prompt) => <button type="button" disabled={!threadId || sending} key={prompt} onClick={() => void send(prompt)}>{prompt}</button>)}</div> : <small>Text · Images · Video · Voice · PDFs · Documents</small>}</div> : null}
+      {loading ? <div className="chat-empty"><LoaderCircle className="chat-spinner" size={30} /><p>Loading saved messages…</p></div> : !messages.length ? <div className="chat-empty"><span><MessageSquareText size={38} /></span><h2>Start the conversation</h2><p>Keep messages, feedback, and files together. Everyone in this company conversation can read the saved history.</p><small>Text · Images · Video · Voice · PDFs · Documents</small></div> : null}
       {messages.map((message) => <article key={message.id} className={`chat-message ${message.senderId === userId ? "own" : ""} ${message.senderRole === "ASSISTANT" ? "assistant" : ""}`}>
-        <div className="chat-message-author">{message.senderRole === "ASSISTANT" ? <Bot size={15} /> : null}<strong>{message.senderId === userId ? "You" : message.senderName}</strong><span>{message.senderRole === "ADMIN" ? "Admin" : message.senderRole === "ASSISTANT" ? assistantSource(message) : "Company"}</span></div>
+        <div className="chat-message-author"><strong>{message.senderId === userId ? "You" : message.senderName}</strong><span>{message.senderRole === "ADMIN" ? "Admin" : message.senderRole === "ASSISTANT" ? "Archived assistant" : "Company"}</span></div>
         <div className="chat-bubble">{message.body ? <p>{message.body}</p> : null}{message.attachments.map((attachment) => <Attachment attachment={attachment} companyId={companyId} key={attachment.id} />)}<RevisionSources message={message} isAdmin={isAdmin} /></div>
         <div className="chat-message-time"><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>{message.senderId === userId ? <span title="Saved to database"><CheckCheck size={13} /><span className="sr-only">Saved</span></span> : null}</div>
       </article>)}
-      {sending ? <p className="chat-sending" role="status"><LoaderCircle className="chat-spinner" size={15} />{kind === "AI" ? aiProgress || "Starting your browser AI…" : "Saving your message…"}</p> : null}
+      {sending ? <p className="chat-sending" role="status"><LoaderCircle className="chat-spinner" size={15} />Saving your message…</p> : null}
     </div>
-    {error ? <div className="chat-error" role="alert"><span>{error}</span>{retryAi ? <button type="button" disabled={sending} onClick={() => void retryAiReply()}>Retry answer</button> : !threadId ? <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry</button> : null}<button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div> : null}
+    {error ? <div className="chat-error" role="alert"><span>{error}</span>{!threadId ? <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry</button> : null}<button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div> : null}
     <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       {files.length ? <div className="chat-pending-files">{files.map((file, index) => <span key={`${file.name}:${index}`}><Paperclip size={13} /><span>{file.name}<small>{formatBytes(file.size)}</small></span><button type="button" disabled={sending} aria-label={`Remove ${file.name}`} onClick={() => { setFiles((current) => current.filter((_, i) => i !== index)); pendingId.current = null; }}><X size={14} /></button></span>)}</div> : null}
       <div className="chat-compose-row">
-        {kind === "COMPANY" ? <><input type="file" ref={fileInput} accept={chatAccept} multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} /><button className="chat-tool" type="button" disabled={sending || loading || files.length >= maxChatFiles} onClick={() => fileInput.current?.click()} aria-label="Attach files"><Paperclip size={20} /></button></> : null}
-        <textarea aria-label={kind === "AI" ? "Ask AI Ultra" : "Message"} rows={2} maxLength={maxChatText} value={body} disabled={sending || loading} placeholder={kind === "AI" ? "Ask about your company’s work…" : "Write a message…"} onChange={(event) => { setBody(event.target.value); pendingId.current = null; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-        {kind === "COMPANY" ? <button className={`chat-tool ${recording ? "recording" : ""}`} type="button" disabled={sending || loading || requestingMic || (!recording && files.length >= maxChatFiles)} onClick={() => recording ? recorder.current?.stop() : void startRecording()} aria-label={recording ? "Stop recording" : "Record voice message"}>{recording ? <Square size={18} /> : <Mic size={20} />}</button> : null}
+        <input type="file" ref={fileInput} accept={chatAccept} multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} /><button className="chat-tool" type="button" disabled={sending || loading || files.length >= maxChatFiles} onClick={() => fileInput.current?.click()} aria-label="Attach files"><Paperclip size={20} /></button>
+        <textarea aria-label="Message" rows={2} maxLength={maxChatText} value={body} disabled={sending || loading} placeholder="Write a message…" onChange={(event) => { setBody(event.target.value); pendingId.current = null; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} spellCheck />
+        <button className={`chat-tool ${recording ? "recording" : ""}`} type="button" disabled={sending || loading || requestingMic || (!recording && files.length >= maxChatFiles)} onClick={() => recording ? recorder.current?.stop() : void startRecording()} aria-label={recording ? "Stop recording" : "Record voice message"}>{recording ? <Square size={18} /> : <Mic size={20} />}</button>
         <button className="chat-send" type="submit" disabled={sending || loading || !threadId || recording || requestingMic || (!body.trim() && !files.length)} aria-label="Send message"><Send size={19} /></button>
       </div>
-      <p className="chat-composer-help">{recording ? "Recording… stop to attach your voice message. Maximum 5 minutes." : kind === "AI" ? "Runs in this browser on your GPU or CPU. The model downloads once, is cached locally, and receives only data you are authorized to view." : "Up to 5 files · 100 MB total · Images/documents 20 MB · Voice 25 MB · Shift + Enter for a new line"}</p>
+      <WritingAssistant value={body} onApply={(corrected) => { setBody(corrected); pendingId.current = null; }} context="message" disabled={sending || loading} compact />
+      <p className="chat-composer-help">{recording ? "Recording… stop to attach your voice message. Maximum 5 minutes." : "Up to 5 files · 100 MB total · Images/documents 20 MB · Voice 25 MB · Shift + Enter for a new line"}</p>
     </form>
   </section>;
 }

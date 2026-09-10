@@ -13,6 +13,7 @@ import {
   FileImage,
   FolderKanban,
   FolderPlus,
+  GitCompareArrows,
   ImagePlus,
   LogOut,
   MessageSquareText,
@@ -34,6 +35,8 @@ import { AssetPreview } from "./asset-preview";
 import { UploadContentFields } from "./upload-content-fields";
 import { CategoryFilters, UploadCategoryFields } from "./work-categories";
 import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
+import type { RevisionCheck } from "@/domain/quality-tools";
+import { CorrectableInput, CorrectableTextarea } from "./writing-assistant";
 
 interface Company {
   id: string;
@@ -91,6 +94,7 @@ type Panel =
   | { type: "create-project" }
   | { type: "edit-project" }
   | { type: "upload"; posterId?: string }
+  | { type: "compare"; posterId: string }
   | null;
 
 const dateRanges: Array<{ value: DateRange; label: string }> = [
@@ -208,6 +212,9 @@ export function AdminDashboard({
   const [categoryFilter, setCategoryFilter] = useState(allCategories);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
+  const [comparing, setComparing] = useState(false);
+  const [comparison, setComparison] = useState<RevisionCheck | null>(null);
+  const [comparisonError, setComparisonError] = useState("");
 
   const selectedCompany = companies.find((company) => company.id === selectedCompanyId);
   const companyProjects = useMemo(
@@ -514,6 +521,22 @@ export function AdminDashboard({
     }
   };
 
+  const checkRevision = async (poster: AdminPoster) => {
+    setPanel({ type: "compare", posterId: poster.id });
+    setComparing(true);
+    setComparison(null);
+    setComparisonError("");
+    try {
+      const response = await fetch(`/api/v1/admin/posters/${poster.id}/compare`, { method: "POST" });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      setComparison(await response.json() as RevisionCheck);
+    } catch (error) {
+      setComparisonError(error instanceof Error ? error.message : "The revision could not be checked.");
+    } finally {
+      setComparing(false);
+    }
+  };
+
   return (
     <div className="admin-workspace-shell">
       <aside className="admin-workspace-sidebar">
@@ -573,7 +596,7 @@ export function AdminDashboard({
             {selectedProject ? <><ChevronRight size={14} /><strong>{selectedProject.name}</strong></> : null}
           </div>
           {selectedCompany ? (
-            <Link className="admin-subtle-button" href={`/messages?companyId=${selectedCompany.id}`}><MessageSquareText size={16} />Messages & AI</Link>
+            <Link className="admin-subtle-button" href={`/messages?companyId=${selectedCompany.id}`}><MessageSquareText size={16} />Messages</Link>
           ) : null}
           {selectedCompany ? (
             <button className="admin-subtle-button" type="button" onClick={() => setPanel({ type: "edit-company" })}>
@@ -690,7 +713,7 @@ export function AdminDashboard({
                           );
                         })()}
                         {selectedVersion.note ? <section className="admin-team-note"><small>Upload note</small><p>{selectedVersion.note}</p></section> : null}
-                        <Link className="chat-review-link" href={`/messages?companyId=${selectedCompany.id}&mode=ai&post=${selectedPoster.id}`}><MessageSquareText size={17} />Check revision with AI Ultra</Link>
+                        {selectedVersion.isCurrent && selectedPoster.status === "AWAITING_CLIENT_REVIEW" && selectedPoster.versions.length > 1 ? <button className="revision-check-button" type="button" onClick={() => void checkRevision(selectedPoster)}><GitCompareArrows size={17} />Check requested changes</button> : null}
                         <div className="admin-history-heading"><h3>Version history</h3><span>{selectedPoster.versions.length} versions</span></div>
                         <div className="admin-version-list">
                           {selectedPoster.versions.map((version) => {
@@ -774,9 +797,9 @@ export function AdminDashboard({
             {uploadPosterTarget ? (
               <div className="admin-version-target"><RotateCcw size={19} /><div><small>New version of</small><strong>{uploadPosterTarget.title}</strong></div></div>
             ) : (
-              <label>Title<input name="title" maxLength={220} placeholder="Give this item a clear name" autoFocus required /></label>
+              <label>Title<CorrectableInput name="title" maxLength={220} placeholder="Give this item a clear name" autoFocus required context="title" disabled={busy} /></label>
             )}
-            <label>Upload note<textarea name="note" maxLength={3000} rows={3} placeholder={uploadPosterTarget ? "What changed in this version?" : "Optional context for the client"} /></label>
+            <label>Upload note<CorrectableTextarea name="note" maxLength={3000} rows={3} placeholder={uploadPosterTarget ? "What changed in this version?" : "Optional context for the client"} context="upload-note" disabled={busy} /></label>
             <UploadCategoryFields key={`category-${uploadPosterTarget?.id ?? "new"}`} initialValue={uploadPosterTarget} disabled={busy} />
             <UploadContentFields key={uploadPosterTarget?.id ?? "new"} initialType={currentVersion(uploadPosterTarget)?.contentType} disabled={busy} />
             {message?.kind === "error" ? <p className="upload-error" role="alert">{message.text}</p> : null}
@@ -784,6 +807,27 @@ export function AdminDashboard({
             <button className="admin-primary-button" type="submit" disabled={busy || !posterStorageConfigured}><Upload size={18} />{busy ? "Publishing…" : uploadPosterTarget ? "Publish new version" : "Publish content"}</button>
             <p className="admin-form-help">{uploadPosterTarget ? "This keeps all earlier versions and client feedback in the history." : "Add a file or website link for review. Use Upload new version when revising an existing item."}</p>
           </form>
+        </ModalFrame>
+      ) : null}
+
+      {panel?.type === "compare" ? (
+        <ModalFrame eyebrow="Revision quality check" title={posters.find((poster) => poster.id === panel.posterId)?.title ?? "Check revision"} onClose={() => setPanel(null)}>
+          <div className="revision-check-result" aria-live="polite">
+            {comparing ? <div className="revision-check-loading"><span className="revision-check-spinner"><GitCompareArrows size={22} /></span><strong>Checking every client request…</strong><p>Comparing both stored versions and looking for anything missing.</p></div> : comparisonError ? <div className="revision-check-error" role="alert"><XCircle size={20} /><div><strong>Could not complete the check</strong><p>{comparisonError}</p></div></div> : comparison ? <>
+              <div className={`revision-verdict ${comparison.verdict.toLowerCase().replace("_", "-")}`}>
+                {comparison.verdict === "READY" ? <CheckCircle2 size={22} /> : comparison.verdict === "NEEDS_ATTENTION" ? <XCircle size={22} /> : <Clock3 size={22} />}
+                <div><small>Compared v{comparison.compared.fromVersion} with v{comparison.compared.toVersion}</small><strong>{comparison.verdict === "READY" ? "All requested changes found" : comparison.verdict === "NEEDS_ATTENTION" ? "Some changes need attention" : "Manual review still needed"}</strong></div>
+              </div>
+              <p className="revision-summary">{comparison.summary}</p>
+              <div className="revision-requirements">{comparison.requirements.map((requirement, index) => <article className={requirement.status.toLowerCase()} key={`${requirement.request}:${index}`}>
+                <span>{requirement.status === "MET" ? <Check size={15} /> : requirement.status === "MISSING" ? <X size={15} /> : <Clock3 size={15} />}</span>
+                <div><strong>{requirement.request}</strong><p>{requirement.evidence}</p></div>
+              </article>)}</div>
+              {comparison.visualChanges.length ? <section className="revision-detail-list"><strong>Other detected changes</strong><ul>{comparison.visualChanges.map((change) => <li key={change}>{change}</li>)}</ul></section> : null}
+              {comparison.warnings.length ? <section className="revision-detail-list warnings"><strong>Review notes</strong><ul>{comparison.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section> : null}
+              <p className="revision-disclaimer">This is a rule-based QA check; approve the final design after a human review.</p>
+            </> : null}
+          </div>
         </ModalFrame>
       ) : null}
     </div>

@@ -6,8 +6,8 @@ export async function POST(request: Request) {
     assertChatOrigin(request);
     const scope = await requireChatScope(request);
     const input = await request.json().catch(() => null);
-    if (!input || !["COMPANY", "AI"].includes(input.kind)) throw new ChatInputError("Choose company chat or AI Ultra.");
-    const thread = await ensureChatThread(scope, input.kind);
+    if (!input || input.kind !== "COMPANY") throw new ChatInputError("Choose company chat.");
+    const thread = await ensureChatThread(scope, "COMPANY");
     return Response.json({ thread: { id: thread.id, kind: thread.kind } }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return chatError(error); }
 }

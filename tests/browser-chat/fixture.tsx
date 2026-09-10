@@ -7,5 +7,4 @@ import "../../src/components/chat.css";
 createRoot(document.getElementById("root")!).render(<ChatWorkspace
   companies={[{ id: "company-a", name: "Acme Studio" }]}
   companyId="company-a" userId="client-a" isAdmin={false}
-  initialKind="COMPANY" initialPostId="" initialPosts={[]}
 />);
