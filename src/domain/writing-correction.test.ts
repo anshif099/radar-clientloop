@@ -1,24 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { correctWriting } from "./writing-correction";
+import { correctWriting, suggestWriting } from "./writing-correction";
 
 describe("local writing correction", () => {
-  it("corrects known spelling, grammar, punctuation, and capitalization", () => {
-    expect(correctWriting("this are teh currection.i can able to fix it").correctedText)
-      .toBe("This is the correction. I can fix it");
+  it("corrects unambiguous dictionary spelling, grammar, punctuation, and capitalization", () => {
+    expect(correctWriting("this are aplication.i can able to fix it").correctedText)
+      .toBe("This is application. I can fix it");
   });
 
   it("preserves URLs exactly", () => {
     const url = "https://example.com/teh-file?q=dont#v1";
-    expect(correctWriting(`plase open ${url}`).correctedText).toBe(`Please open ${url}`);
+    expect(correctWriting(`open ${url}`).correctedText).toBe(`Open ${url}`);
   });
 
-  it("corrects application misspellings instead of only capitalizing them", () => {
-    expect(correctWriting("applitacion").correctedText).toBe("Application");
-    expect(correctWriting("aplication form").correctedText).toBe("Application form");
+  it("generates dictionary suggestions without a hard-coded typo list", () => {
+    expect(suggestWriting("appl")).toContain("apple");
+    expect(suggestWriting("postar")).toContain("poster");
+    expect(suggestWriting("applitacion")).toContain("application");
+    expect(suggestWriting("teh")[0]).toBe("the");
   });
 
-  it("corrects poster while preserving the surrounding Manglish word", () => {
-    expect(correctWriting("uthradam postar").correctedText).toBe("Uthradam poster");
+  it("does not guess when a misspelling has several equally close choices", () => {
+    expect(correctWriting("uthradam postar").correctedText).toBe("Uthradam postar");
   });
 
   it("does not modify Malayalam text", () => {

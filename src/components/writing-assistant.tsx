@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, LoaderCircle, SpellCheck2, X } from "lucide-react";
-import { useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useEffect, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import type { WritingCorrection } from "@/domain/quality-tools";
 
 type WritingContext = "message" | "feedback" | "title" | "upload-note" | "general";
@@ -20,7 +20,38 @@ export function WritingAssistant({ value, onApply, context = "general", disabled
 }) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<{ source: string; correction: WritingCorrection } | null>(null);
+  const [suggestions, setSuggestions] = useState<{ source: string; word: string; items: string[] } | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const word = value.match(/[A-Za-z']+$/)?.[0] ?? "";
+    if (disabled || word.length < 3) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/v1/writing/correct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: word, context, mode: "suggest" }),
+          signal: controller.signal,
+        });
+        if (!response.ok) return setSuggestions(null);
+        const body = await response.json() as { suggestions?: unknown };
+        const items = Array.isArray(body.suggestions)
+          ? body.suggestions.filter((item): item is string => typeof item === "string")
+          : [];
+        setSuggestions(items.length ? { source: value, word, items } : null);
+      } catch (cause) {
+        if (!(cause instanceof DOMException && cause.name === "AbortError")) setSuggestions(null);
+      }
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [context, disabled, value]);
 
   const check = async () => {
     const source = value.trim();
@@ -45,9 +76,20 @@ export function WritingAssistant({ value, onApply, context = "general", disabled
   };
 
   const visibleResult = result?.source === value ? result.correction : null;
+  const visibleSuggestions = suggestions?.source === value ? suggestions : null;
   const changed = visibleResult && visibleResult.correctedText !== value;
   return (
     <div className={`writing-assistant${compact ? " compact" : ""}`}>
+      {visibleSuggestions ? (
+        <div className="writing-suggestions" role="listbox" aria-label={`Suggestions for ${visibleSuggestions.word}`}>
+          {visibleSuggestions.items.map((suggestion) => (
+            <button key={suggestion} type="button" role="option" aria-selected="false" onClick={() => {
+              onApply(`${value.slice(0, -visibleSuggestions.word.length)}${suggestion}`);
+              setSuggestions(null);
+            }}>{suggestion}</button>
+          ))}
+        </div>
+      ) : null}
       <button className="writing-check-button" type="button" disabled={disabled || checking || !value.trim()} onClick={() => void check()} title="Check spelling and grammar">
         {checking ? <LoaderCircle className="writing-spinner" size={14} /> : <SpellCheck2 size={14} />}
         <span>{checking ? "Checking…" : compact ? "Check writing" : "Fix spelling & grammar"}</span>

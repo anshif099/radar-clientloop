@@ -21,9 +21,15 @@ beforeEach(() => {
 
 describe("writing correction", () => {
   it("returns a structured correction for an authenticated user", async () => {
-    const response = await POST(request({ text: "this are teh currection", context: "upload-note" }));
+    const response = await POST(request({ text: "this are aplication", context: "upload-note" }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(expect.objectContaining({ correctedText: "This is the correction", language: "English or Manglish" }));
+    expect(await response.json()).toEqual(expect.objectContaining({ correctedText: "This is application", language: "English or Manglish" }));
+  });
+
+  it("returns live local-dictionary suggestions", async () => {
+    const response = await POST(request({ text: "appl", context: "upload-note", mode: "suggest" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ suggestions: expect.arrayContaining(["apple"]) });
   });
 
   it("rejects empty text", async () => {

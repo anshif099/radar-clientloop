@@ -3,40 +3,19 @@ import dictionary from "dictionary-en";
 import nspell from "nspell";
 import type { WritingCorrection } from "./quality-tools";
 
-const spelling: Record<string, string> = {
-  adress: "address",
-  applicaiton: "application",
-  aplication: "application",
-  appliction: "application",
-  applitacion: "application",
-  becuase: "because",
-  cant: "can't",
-  currection: "correction",
-  definately: "definitely",
-  didnt: "didn't",
-  doesnt: "doesn't",
-  dont: "don't",
-  grammer: "grammar",
-  havent: "haven't",
-  isnt: "isn't",
-  occured: "occurred",
-  plase: "please",
-  postar: "poster",
-  recomend: "recommend",
-  recieve: "receive",
-  recieved: "received",
-  seperate: "separate",
-  thier: "their",
-  teh: "the",
-  wont: "won't",
-  writting: "writing",
-  youre: "you're",
-};
-
 const englishSpelling = nspell({
   aff: Buffer.from(dictionary.aff),
   dic: Buffer.from(dictionary.dic),
 });
+
+const dictionaryWordsByLength = new Map<number, string[]>();
+for (const entry of new TextDecoder().decode(dictionary.dic).split(/\r?\n/).slice(1)) {
+  const word = entry.split("/", 1)[0]?.toLowerCase();
+  if (!word || !/^[a-z']+$/.test(word)) continue;
+  const words = dictionaryWordsByLength.get(word.length) ?? [];
+  words.push(word);
+  dictionaryWordsByLength.set(word.length, words);
+}
 
 function editDistance(left: string, right: string) {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -54,23 +33,51 @@ function editDistance(left: string, right: string) {
   return previous[right.length] ?? right.length;
 }
 
-function dictionaryCorrection(word: string) {
-  // Avoid guessing at names, acronyms, short words, or Manglish. Automatically
-  // apply only an unambiguous one-edit English dictionary suggestion.
-  if (word.length < 4 || word !== word.toLowerCase() || englishSpelling.correct(word)) return undefined;
-  const suggestions = [...new Set(englishSpelling.suggest(word).map((suggestion) => suggestion.toLowerCase()))]
-    .filter((suggestion) => /^[a-z']+$/.test(suggestion));
-  if (!suggestions.length) return undefined;
-  const scored = suggestions.map((suggestion) => ({ suggestion, distance: editDistance(word, suggestion) }));
-  const nearestDistance = Math.min(...scored.map(({ distance }) => distance));
-  const nearest = scored.filter(({ distance }) => distance === nearestDistance);
-  return nearestDistance === 1 && nearest.length === 1 ? nearest[0]?.suggestion : undefined;
-}
-
 function preserveCase(source: string, replacement: string) {
   if (source === source.toUpperCase()) return replacement.toUpperCase();
   if (source[0] === source[0]?.toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
   return replacement;
+}
+
+export function suggestWriting(word: string, limit = 4) {
+  const normalized = word.toLowerCase();
+  if (normalized.length < 3 || !/^[a-z']+$/.test(normalized) || englishSpelling.correct(normalized)) return [];
+
+  const suggestions = new Set<string>();
+  // Adjacent key transpositions are common while typing. Prefer the swapped
+  // form when it is a dictionary word (for example, "teh" becomes "the").
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    const transposed = `${normalized.slice(0, index)}${normalized[index + 1]}${normalized[index]}${normalized.slice(index + 2)}`;
+    if (englishSpelling.correct(transposed)) suggestions.add(transposed);
+  }
+  for (const suggestion of englishSpelling.suggest(normalized)) {
+    const candidate = suggestion.toLowerCase();
+    if (/^[a-z']+$/.test(candidate)) suggestions.add(candidate);
+  }
+  const maximumDistance = normalized.length >= 7 ? 2 : 1;
+  const fuzzy: Array<{ word: string; distance: number }> = [];
+  for (let length = normalized.length - maximumDistance; length <= normalized.length + maximumDistance; length += 1) {
+    for (const candidate of dictionaryWordsByLength.get(length) ?? []) {
+      if (suggestions.has(candidate)) continue;
+      const distance = editDistance(normalized, candidate);
+      if (distance <= maximumDistance) fuzzy.push({ word: candidate, distance });
+    }
+  }
+  fuzzy.sort((left, right) => left.distance - right.distance || left.word.localeCompare(right.word));
+  for (const candidate of fuzzy) suggestions.add(candidate.word);
+  return [...suggestions].slice(0, Math.max(1, Math.min(limit, 8))).map((suggestion) => preserveCase(word, suggestion));
+}
+
+function dictionaryCorrection(word: string) {
+  // Full-text correction only applies an unambiguous nearest choice. Ambiguous
+  // words are offered interactively by suggestWriting instead of being guessed.
+  if (word.length < 4 || word !== word.toLowerCase()) return undefined;
+  const suggestions = suggestWriting(word, 8);
+  if (!suggestions.length) return undefined;
+  const scored = suggestions.map((suggestion) => ({ suggestion, distance: editDistance(word, suggestion.toLowerCase()) }));
+  const nearestDistance = Math.min(...scored.map(({ distance }) => distance));
+  const nearest = scored.filter(({ distance }) => distance === nearestDistance);
+  return nearest.length === 1 ? nearest[0]?.suggestion : undefined;
 }
 
 function languageOf(text: string) {
@@ -88,7 +95,7 @@ export function correctWriting(source: string): WritingCorrection {
   });
 
   text = text.replace(/\b[A-Za-z']+\b/g, (word) => {
-    const replacement = spelling[word.toLowerCase()] ?? dictionaryCorrection(word);
+    const replacement = dictionaryCorrection(word);
     if (!replacement) return word;
     const corrected = preserveCase(word, replacement);
     changes.add(`Corrected "${word}" to "${corrected}"`);

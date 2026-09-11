@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { assertChatOrigin } from "@/auth/chat";
 import { requireRequestSession } from "@/auth/server";
-import { correctWriting } from "@/domain/writing-correction";
+import { correctWriting, suggestWriting } from "@/domain/writing-correction";
 
 export const runtime = "nodejs";
 
 const inputSchema = z.object({
   text: z.string().trim().min(1).max(8_000),
   context: z.enum(["message", "feedback", "title", "upload-note", "general"]).default("general"),
+  mode: z.enum(["correct", "suggest"]).default("correct"),
 });
 
 export async function POST(request: Request) {
@@ -16,6 +17,9 @@ export async function POST(request: Request) {
     await requireRequestSession(request);
     const parsed = inputSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ message: "Enter text up to 8,000 characters." }, { status: 400 });
+    if (parsed.data.mode === "suggest") {
+      return Response.json({ suggestions: suggestWriting(parsed.data.text) }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const result = correctWriting(parsed.data.text);
     return Response.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

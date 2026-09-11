@@ -7,7 +7,14 @@ function message(id: number, body: string, senderId = "client-a"): ChatMessage {
 async function backend(page: Page, seed: ChatMessage[] = []) {
   const rooms: Record<string, ChatMessage[]> = { [companyThread]: seed };
   let nextId = seed.length + 1;
-  await page.route("**/api/v1/writing/correct", (route) => route.fulfill({ json: { correctedText: "Please send the revised creative.", changes: ["Corrected spelling and grammar"], language: "English" } }));
+  await page.route("**/api/v1/writing/correct", async (route) => {
+    const body = route.request().postDataJSON() as { mode?: string; text?: string };
+    if (body.mode === "suggest") {
+      const suggestions = body.text === "appl" ? ["apple", "apply", "app", "apps"] : [];
+      return route.fulfill({ json: { suggestions } });
+    }
+    return route.fulfill({ json: { correctedText: "Please send the revised creative.", changes: ["Corrected spelling and grammar"], language: "English" } });
+  });
   await page.route("**/api/v1/chat/**", async (route) => {
     const request = route.request(); const url = new URL(request.url());
     if (url.pathname.endsWith("/threads")) return route.fulfill({ json: { thread: { id: companyThread } } });
@@ -70,6 +77,15 @@ test("writing correction previews and applies a suggestion before sending", asyn
   await expect(page.getByText("Please send the revised creative.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Apply correction" }).click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Please send the revised creative.");
+});
+test("local spelling suggestions appear while typing and can replace the last word", async ({ page }) => {
+  await backend(page);
+  await page.goto("/");
+  const messageBox = page.getByRole("textbox", { name: "Message", exact: true });
+  await messageBox.fill("Please bring an appl");
+  await expect(page.getByRole("option", { name: "apple", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "apple", exact: true }).click();
+  await expect(messageBox).toHaveValue("Please bring an apple");
 });
 test("voice recording attaches an audio clip and stops microphone tracks", async ({ page, context }) => {
   await context.grantPermissions(["microphone"]);

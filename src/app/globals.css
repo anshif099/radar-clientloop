@@ -4192,6 +4192,35 @@ button:disabled {
   animation: writing-spin 1s linear infinite;
 }
 
+.writing-suggestions {
+  display: flex;
+  max-width: 100%;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 2px 1px;
+  scrollbar-width: thin;
+}
+
+.writing-suggestions button {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  border: 1px solid #dfd3ed;
+  border-radius: 999px;
+  background: #fff;
+  color: #4d3a67;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.writing-suggestions button:hover,
+.writing-suggestions button:focus-visible {
+  border-color: #6b4c94;
+  background: #f8f4fc;
+  outline: none;
+}
+
 .writing-result,
 .writing-error {
   padding: 11px 12px;
