@@ -537,6 +537,40 @@ export function AdminDashboard({
     }
   };
 
+  const deletePoster = async () => {
+    if (!selectedPoster || !window.confirm(
+      `Permanently delete ${selectedPoster.title} and all ${selectedPoster.versions.length} version${selectedPoster.versions.length === 1 ? "" : "s"}? This cannot be undone.`,
+    )) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/v1/admin/posters/${selectedPoster.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      const { cleanupPending } = await response.json() as { cleanupPending: number };
+      const remaining = posters.filter((poster) => poster.id !== selectedPoster.id);
+      const nextPoster = remaining.find((poster) => poster.projectId === selectedProjectId);
+      setPosters(remaining);
+      setCompanies((current) => current.map((company) => company.id === selectedPoster.companyId
+        ? { ...company, posterCount: Math.max(0, company.posterCount - 1) }
+        : company));
+      setProjects((current) => current.map((project) => project.id === selectedPoster.projectId
+        ? { ...project, posterCount: Math.max(0, project.posterCount - 1) }
+        : project));
+      setSelectedPosterId(nextPoster?.id ?? "");
+      setSelectedVersionId(currentVersion(nextPoster)?.id ?? "");
+      setMessage({
+        kind: cleanupPending ? "error" : "success",
+        text: cleanupPending
+          ? `${selectedPoster.title} was deleted, but ${cleanupPending} stored file${cleanupPending === 1 ? "" : "s"} still require server cleanup.`
+          : `${selectedPoster.title} and all of its versions were permanently deleted.`,
+      });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Poster could not be deleted." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="admin-workspace-shell">
       <aside className="admin-workspace-sidebar">
@@ -687,7 +721,10 @@ export function AdminDashboard({
                       <>
                         <header>
                           <div><p className="eyebrow">Poster details</p><h2>{selectedPoster.title}</h2></div>
-                          <button className="admin-icon-button" type="button" onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })} aria-label="Upload new version"><Upload size={18} /></button>
+                          <div className="admin-header-actions">
+                            <button className="admin-icon-button" type="button" disabled={busy} onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })} aria-label="Upload new version"><Upload size={18} /></button>
+                            <button className="admin-icon-button danger" type="button" disabled={busy} onClick={() => void deletePoster()} aria-label={`Delete ${selectedPoster.title}`}><Trash2 size={18} /></button>
+                          </div>
                         </header>
                         <div className="admin-inspector-preview"><AssetPreview src={selectedVersion.preview} title={`${selectedPoster.title} version ${selectedVersion.versionNumber}`} contentType={selectedVersion.contentType} originalName={selectedVersion.originalName} /></div>
                         <p className="work-classification">{workClassificationLabel(selectedPoster)}</p>

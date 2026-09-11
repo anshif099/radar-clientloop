@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, max, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max, ne } from "drizzle-orm";
 import { auth } from "@/auth/server";
 import { authSessions, authUsers } from "@/db/auth-schema";
 import { db, withAgency, withPlatformAdmin } from "@/db/client";
@@ -752,6 +752,115 @@ export async function createPosterVersion(input: {
       versionId: version.id,
       versionNumber,
       title: item.title,
+    };
+  });
+}
+
+export async function deletePoster(input: { posterId: string; actorId: string }) {
+  return withPlatformAdmin(async (transaction) => {
+    const [poster] = await transaction
+      .select({
+        id: workItems.id,
+        title: workItems.title,
+        companyId: workItems.agencyId,
+        workspaceId: workItems.workspaceId,
+        projectId: workItems.divisionId,
+      })
+      .from(workItems)
+      .innerJoin(agencies, eq(agencies.id, workItems.agencyId))
+      .where(and(eq(workItems.id, input.posterId), eq(agencies.status, "ACTIVE")))
+      .limit(1);
+    if (!poster) throw new Error("POSTER_NOT_FOUND");
+
+    const versions = await transaction
+      .select({ id: workItemVersions.id })
+      .from(workItemVersions)
+      .where(and(eq(workItemVersions.agencyId, poster.companyId), eq(workItemVersions.workItemId, poster.id)));
+    const versionIds = versions.map(({ id }) => id);
+    const decisions = await transaction
+      .select({ id: reviewDecisions.id })
+      .from(reviewDecisions)
+      .where(and(eq(reviewDecisions.agencyId, poster.companyId), eq(reviewDecisions.workItemId, poster.id)));
+    const decisionIds = decisions.map(({ id }) => id);
+
+    const versionAssetLinks = versionIds.length
+      ? await transaction
+          .select({ assetId: versionAssets.assetId })
+          .from(versionAssets)
+          .where(and(eq(versionAssets.agencyId, poster.companyId), inArray(versionAssets.versionId, versionIds)))
+      : [];
+    const feedbackAssetLinks = decisionIds.length
+      ? await transaction
+          .select({ assetId: feedbackEntries.assetId })
+          .from(feedbackEntries)
+          .where(and(eq(feedbackEntries.agencyId, poster.companyId), inArray(feedbackEntries.reviewDecisionId, decisionIds)))
+      : [];
+    const assetIds = [...new Set([
+      ...versionAssetLinks.map(({ assetId }) => assetId),
+      ...feedbackAssetLinks.flatMap(({ assetId }) => assetId ? [assetId] : []),
+    ])];
+    const storedAssets = assetIds.length
+      ? await transaction
+          .select({ storageKey: assets.storageKey })
+          .from(assets)
+          .where(and(eq(assets.agencyId, poster.companyId), inArray(assets.id, assetIds)))
+      : [];
+
+    await transaction.insert(auditEvents).values({
+      agencyId: poster.companyId,
+      workspaceId: poster.workspaceId,
+      actorType: "SUPER_ADMIN",
+      actorId: input.actorId,
+      action: "POSTER_DELETED",
+      resourceType: "WORK_ITEM",
+      resourceId: poster.id,
+      metadata: {
+        posterTitle: poster.title,
+        projectId: poster.projectId,
+        versionsDeleted: versionIds.length,
+        assetsDeleted: assetIds.length,
+      },
+    });
+
+    if (decisionIds.length) {
+      await transaction.delete(feedbackEntries).where(and(
+        eq(feedbackEntries.agencyId, poster.companyId),
+        inArray(feedbackEntries.reviewDecisionId, decisionIds),
+      ));
+    }
+    await transaction.delete(reviewDecisions).where(and(
+      eq(reviewDecisions.agencyId, poster.companyId),
+      eq(reviewDecisions.workItemId, poster.id),
+    ));
+    if (versionIds.length) {
+      await transaction.delete(versionAssets).where(and(
+        eq(versionAssets.agencyId, poster.companyId),
+        inArray(versionAssets.versionId, versionIds),
+      ));
+    }
+    await transaction.delete(workItemVersions).where(and(
+      eq(workItemVersions.agencyId, poster.companyId),
+      eq(workItemVersions.workItemId, poster.id),
+    ));
+    await transaction.delete(outboxEvents).where(and(
+      eq(outboxEvents.agencyId, poster.companyId),
+      eq(outboxEvents.aggregateType, "WORK_ITEM"),
+      eq(outboxEvents.aggregateId, poster.id),
+    ));
+    await transaction.delete(workItems).where(and(
+      eq(workItems.agencyId, poster.companyId),
+      eq(workItems.id, poster.id),
+    ));
+    if (assetIds.length) {
+      await transaction.delete(assets).where(and(eq(assets.agencyId, poster.companyId), inArray(assets.id, assetIds)));
+    }
+
+    return {
+      id: poster.id,
+      title: poster.title,
+      companyId: poster.companyId,
+      projectId: poster.projectId,
+      storageKeys: storedAssets.map(({ storageKey }) => storageKey),
     };
   });
 }

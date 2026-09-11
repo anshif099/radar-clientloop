@@ -701,6 +701,20 @@
   color: var(--accent-deep);
 }
 
+.admin-icon-button.danger {
+  border-color: #efc4bd;
+  color: #b63829;
+}
+
+.admin-icon-button.danger:hover {
+  background: #fff2ef;
+}
+
+.admin-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
 .admin-inspector-preview {
   display: grid;
   overflow: hidden;
