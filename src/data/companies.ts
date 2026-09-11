@@ -832,6 +832,12 @@ export async function deletePoster(input: { posterId: string; actorId: string })
       eq(reviewDecisions.agencyId, poster.companyId),
       eq(reviewDecisions.workItemId, poster.id),
     ));
+    // Production has a circular current-version foreign key that is added by
+    // the SQL migration after both tables exist. Clear it before versions.
+    await transaction.update(workItems).set({ currentVersionId: null }).where(and(
+      eq(workItems.agencyId, poster.companyId),
+      eq(workItems.id, poster.id),
+    ));
     if (versionIds.length) {
       await transaction.delete(versionAssets).where(and(
         eq(versionAssets.agencyId, poster.companyId),
@@ -860,6 +866,136 @@ export async function deletePoster(input: { posterId: string; actorId: string })
       title: poster.title,
       companyId: poster.companyId,
       projectId: poster.projectId,
+      storageKeys: storedAssets.map(({ storageKey }) => storageKey),
+    };
+  });
+}
+
+export async function deletePosterVersion(input: { posterId: string; versionId: string; actorId: string }) {
+  return withPlatformAdmin(async (transaction) => {
+    const [poster] = await transaction
+      .select({
+        id: workItems.id,
+        title: workItems.title,
+        companyId: workItems.agencyId,
+        workspaceId: workItems.workspaceId,
+        currentVersionId: workItems.currentVersionId,
+      })
+      .from(workItems)
+      .innerJoin(agencies, eq(agencies.id, workItems.agencyId))
+      .where(and(eq(workItems.id, input.posterId), eq(agencies.status, "ACTIVE")))
+      .limit(1);
+    if (!poster) throw new Error("POSTER_NOT_FOUND");
+
+    const versions = await transaction
+      .select({
+        id: workItemVersions.id,
+        versionNumber: workItemVersions.versionNumber,
+        note: workItemVersions.note,
+      })
+      .from(workItemVersions)
+      .where(and(eq(workItemVersions.agencyId, poster.companyId), eq(workItemVersions.workItemId, poster.id)))
+      .orderBy(desc(workItemVersions.versionNumber));
+    const version = versions.find(({ id }) => id === input.versionId);
+    if (!version) throw new Error("VERSION_NOT_FOUND");
+    if (versions.length === 1) throw new Error("LAST_VERSION");
+
+    const decisions = await transaction
+      .select({ id: reviewDecisions.id })
+      .from(reviewDecisions)
+      .where(and(
+        eq(reviewDecisions.agencyId, poster.companyId),
+        eq(reviewDecisions.workItemId, poster.id),
+        eq(reviewDecisions.versionId, version.id),
+      ));
+    const decisionIds = decisions.map(({ id }) => id);
+    const versionAssetLinks = await transaction
+      .select({ assetId: versionAssets.assetId })
+      .from(versionAssets)
+      .where(and(eq(versionAssets.agencyId, poster.companyId), eq(versionAssets.versionId, version.id)));
+    const feedbackAssetLinks = decisionIds.length
+      ? await transaction
+          .select({ assetId: feedbackEntries.assetId })
+          .from(feedbackEntries)
+          .where(and(eq(feedbackEntries.agencyId, poster.companyId), inArray(feedbackEntries.reviewDecisionId, decisionIds)))
+      : [];
+    const assetIds = [...new Set([
+      ...versionAssetLinks.map(({ assetId }) => assetId),
+      ...feedbackAssetLinks.flatMap(({ assetId }) => assetId ? [assetId] : []),
+    ])];
+    const storedAssets = assetIds.length
+      ? await transaction
+          .select({ storageKey: assets.storageKey })
+          .from(assets)
+          .where(and(eq(assets.agencyId, poster.companyId), inArray(assets.id, assetIds)))
+      : [];
+
+    const replacement = versions.find(({ id }) => id !== version.id);
+    if (!replacement) throw new Error("LAST_VERSION");
+    if (poster.currentVersionId === version.id) {
+      const [replacementReview] = await transaction
+        .select({ decision: reviewDecisions.decision, decidedAt: reviewDecisions.decidedAt })
+        .from(reviewDecisions)
+        .where(and(
+          eq(reviewDecisions.agencyId, poster.companyId),
+          eq(reviewDecisions.workItemId, poster.id),
+          eq(reviewDecisions.versionId, replacement.id),
+        ))
+        .orderBy(desc(reviewDecisions.decidedAt))
+        .limit(1);
+      const status = replacementReview?.decision === "APPROVE"
+        ? "APPROVED" as const
+        : replacementReview
+          ? "REVISION_REQUIRED" as const
+          : "AWAITING_CLIENT_REVIEW" as const;
+      await transaction.update(workItems).set({
+        currentVersionId: replacement.id,
+        description: replacement.note,
+        status,
+        approvedAt: replacementReview?.decision === "APPROVE" ? replacementReview.decidedAt : null,
+        updatedAt: new Date(),
+      }).where(and(eq(workItems.agencyId, poster.companyId), eq(workItems.id, poster.id)));
+    }
+
+    if (decisionIds.length) {
+      await transaction.delete(feedbackEntries).where(and(
+        eq(feedbackEntries.agencyId, poster.companyId),
+        inArray(feedbackEntries.reviewDecisionId, decisionIds),
+      ));
+    }
+    await transaction.delete(reviewDecisions).where(and(
+      eq(reviewDecisions.agencyId, poster.companyId),
+      eq(reviewDecisions.workItemId, poster.id),
+      eq(reviewDecisions.versionId, version.id),
+    ));
+    await transaction.delete(versionAssets).where(and(
+      eq(versionAssets.agencyId, poster.companyId),
+      eq(versionAssets.versionId, version.id),
+    ));
+    await transaction.delete(workItemVersions).where(and(
+      eq(workItemVersions.agencyId, poster.companyId),
+      eq(workItemVersions.workItemId, poster.id),
+      eq(workItemVersions.id, version.id),
+    ));
+    if (assetIds.length) {
+      await transaction.delete(assets).where(and(eq(assets.agencyId, poster.companyId), inArray(assets.id, assetIds)));
+    }
+    await transaction.insert(auditEvents).values({
+      agencyId: poster.companyId,
+      workspaceId: poster.workspaceId,
+      actorType: "SUPER_ADMIN",
+      actorId: input.actorId,
+      action: "POSTER_VERSION_DELETED",
+      resourceType: "WORK_ITEM",
+      resourceId: poster.id,
+      metadata: { posterTitle: poster.title, versionId: version.id, versionNumber: version.versionNumber },
+    });
+
+    return {
+      posterId: poster.id,
+      versionId: version.id,
+      versionNumber: version.versionNumber,
+      currentVersionId: poster.currentVersionId === version.id ? replacement.id : poster.currentVersionId,
       storageKeys: storedAssets.map(({ storageKey }) => storageKey),
     };
   });

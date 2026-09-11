@@ -861,10 +861,16 @@
   gap: 6px;
 }
 
-.admin-version-list > button {
+.admin-version-row {
   display: flex;
-  width: 100%;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.admin-version-select {
+  display: flex;
   min-width: 0;
+  flex: 1;
   align-items: center;
   gap: 9px;
   padding: 7px;
@@ -876,9 +882,30 @@
   text-align: left;
 }
 
-.admin-version-list > button.active {
+.admin-version-select.active {
   border-color: #efad95;
   background: #fff5f1;
+}
+
+.admin-version-delete {
+  display: grid;
+  width: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 1px solid #efc4bd;
+  border-radius: 10px;
+  background: #fff;
+  color: #b63829;
+  cursor: pointer;
+}
+
+.admin-version-delete:hover {
+  background: #fff2ef;
+}
+
+.admin-version-delete:disabled {
+  cursor: not-allowed;
+  opacity: .48;
 }
 
 .admin-version-thumb {
@@ -892,7 +919,7 @@
   background: #eeeae4;
 }
 
-.admin-version-list button > span:nth-child(2) {
+.admin-version-select > span:nth-child(2) {
   display: grid;
   min-width: 0;
   flex: 1;

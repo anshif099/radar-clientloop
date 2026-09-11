@@ -571,6 +571,53 @@ export function AdminDashboard({
     }
   };
 
+  const deletePosterVersion = async (version: PosterVersion) => {
+    if (!selectedPoster) return;
+    if (selectedPoster.versions.length === 1) {
+      await deletePoster();
+      return;
+    }
+    if (!window.confirm(`Permanently delete ${selectedPoster.title} version ${version.versionNumber}? This cannot be undone.`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/v1/admin/posters/${selectedPoster.id}/versions/${version.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      const result = await response.json() as {
+        version: { id: string; versionNumber: number; currentVersionId: string };
+        cleanupPending: number;
+      };
+      const remainingVersions = selectedPoster.versions
+        .filter((item) => item.id !== result.version.id)
+        .map((item) => ({ ...item, isCurrent: item.id === result.version.currentVersionId }));
+      const replacement = remainingVersions.find(({ isCurrent }) => isCurrent) ?? remainingVersions[0];
+      const nextStatus = replacement?.review?.decision === "APPROVE"
+        ? "APPROVED" as const
+        : replacement?.review
+          ? "REVISION_REQUIRED" as const
+          : "AWAITING_CLIENT_REVIEW" as const;
+      setPosters((current) => current.map((poster) => poster.id === selectedPoster.id
+        ? {
+            ...poster,
+            versions: remainingVersions,
+            currentVersionNumber: replacement?.versionNumber ?? 0,
+            status: version.isCurrent ? nextStatus : poster.status,
+          }
+        : poster));
+      setSelectedVersionId(replacement?.id ?? "");
+      setMessage({
+        kind: result.cleanupPending ? "error" : "success",
+        text: result.cleanupPending
+          ? `Version ${result.version.versionNumber} was deleted, but ${result.cleanupPending} stored file${result.cleanupPending === 1 ? "" : "s"} still require server cleanup.`
+          : `Version ${result.version.versionNumber} of ${selectedPoster.title} was permanently deleted.`,
+      });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Poster version could not be deleted." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="admin-workspace-shell">
       <aside className="admin-workspace-sidebar">
@@ -723,7 +770,7 @@ export function AdminDashboard({
                           <div><p className="eyebrow">Poster details</p><h2>{selectedPoster.title}</h2></div>
                           <div className="admin-header-actions">
                             <button className="admin-icon-button" type="button" disabled={busy} onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })} aria-label="Upload new version"><Upload size={18} /></button>
-                            <button className="admin-icon-button danger" type="button" disabled={busy} onClick={() => void deletePoster()} aria-label={`Delete ${selectedPoster.title}`}><Trash2 size={18} /></button>
+                            <button className="admin-icon-button danger" type="button" disabled={busy} onClick={() => void deletePoster()} aria-label={`Delete entire poster ${selectedPoster.title}`} title="Delete entire poster"><Trash2 size={18} /></button>
                           </div>
                         </header>
                         <div className="admin-inspector-preview"><AssetPreview src={selectedVersion.preview} title={`${selectedPoster.title} version ${selectedVersion.versionNumber}`} contentType={selectedVersion.contentType} originalName={selectedVersion.originalName} /></div>
@@ -756,11 +803,14 @@ export function AdminDashboard({
                           {selectedPoster.versions.map((version) => {
                             const status = reviewPresentation(version);
                             return (
-                              <button className={version.id === selectedVersion.id ? "active" : ""} type="button" key={version.id} onClick={() => setSelectedVersionId(version.id)}>
-                                <span className="admin-version-thumb"><AssetPreview src={version.preview} title="" contentType={version.contentType} compact /></span>
-                                <span><strong>Version {version.versionNumber}</strong><small>{formatDate(version.publishedAt)} · {status.label}</small></span>
-                                {version.isCurrent ? <em>Current</em> : <ChevronRight size={15} />}
-                              </button>
+                              <div className="admin-version-row" key={version.id}>
+                                <button className={`admin-version-select${version.id === selectedVersion.id ? " active" : ""}`} type="button" onClick={() => setSelectedVersionId(version.id)}>
+                                  <span className="admin-version-thumb"><AssetPreview src={version.preview} title="" contentType={version.contentType} compact /></span>
+                                  <span><strong>Version {version.versionNumber}</strong><small>{formatDate(version.publishedAt)} · {status.label}</small></span>
+                                  {version.isCurrent ? <em>Current</em> : <ChevronRight size={15} />}
+                                </button>
+                                <button className="admin-version-delete" type="button" disabled={busy} onClick={() => void deletePosterVersion(version)} aria-label={`Delete version ${version.versionNumber}`} title={`Delete version ${version.versionNumber}`}><Trash2 size={15} /></button>
+                              </div>
                             );
                           })}
                         </div>

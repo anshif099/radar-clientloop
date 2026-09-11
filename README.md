@@ -34,7 +34,7 @@ Open **Messages** from either workspace. Admins select a company; its users can 
 
 Company chat supports text, images, videos, voice recordings, PDFs, Word/Excel documents, UTF-8 text/CSV, and ZIP files. Attach up to five files totaling 100 MB per message: images/documents/text up to 20 MB each, audio up to 25 MB, videos/ZIP up to 100 MB. Voice recording needs HTTPS (or localhost), microphone permission, and a compatible browser; recording stops at five minutes. Media playback depends on browser codecs. Unsupported files can be shared in a ZIP archive; archives are downloaded without extraction.
 
-Super Admins can permanently delete a poster from its detail panel. Confirmation removes every version, review decision, feedback entry, database asset record, and stored poster file. This operation cannot be undone.
+Super Admins can permanently delete an individual version from its Version history row. Deleting the current version promotes the newest remaining version; deleting the only version uses the whole-poster confirmation instead. The poster-level trash button removes every version, review decision, feedback entry, database asset record, and stored poster file. These operations cannot be undone.
 
 Run `npm run db:migrate` before using chat. Migration `0004_chat_and_local_ai.sql` creates threads, messages, and attachments. Text, timestamps, senders, and attachment metadata/checksums are saved in MySQL/MariaDB. File bytes are saved under private `UPLOAD_ROOT`, outside the public web root. Back up both the database and upload directory to retain complete history. Company closure preserves stored history but disables access. No message-deletion endpoint or automatic history expiry is provided.
 
