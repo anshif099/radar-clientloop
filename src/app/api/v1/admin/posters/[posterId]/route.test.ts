@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/auth/server", () => ({ requireRequestSuperAdmin: vi.fn() }));
+vi.mock("@/auth/server", () => ({ requireRequestAdmin: vi.fn() }));
 vi.mock("@/data/companies", () => ({ deletePoster: vi.fn() }));
 vi.mock("@/storage/filesystem", () => ({ deleteObject: vi.fn() }));
 
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { deletePoster } from "@/data/companies";
 import { deleteObject } from "@/storage/filesystem";
 import { DELETE } from "./route";
@@ -16,7 +16,7 @@ const context = (id = posterId) => ({ params: Promise.resolve({ posterId: id }) 
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(requireRequestSuperAdmin).mockResolvedValue({ user: { id: "admin" } } as Awaited<ReturnType<typeof requireRequestSuperAdmin>>);
+  vi.mocked(requireRequestAdmin).mockResolvedValue({ user: { id: "admin" } } as Awaited<ReturnType<typeof requireRequestAdmin>>);
   vi.mocked(deletePoster).mockResolvedValue({
     id: posterId,
     title: "Campaign",
@@ -49,7 +49,7 @@ describe("poster deletion", () => {
   });
 
   it("requires Super Admin access", async () => {
-    vi.mocked(requireRequestSuperAdmin).mockRejectedValue(new Error("FORBIDDEN"));
+    vi.mocked(requireRequestAdmin).mockRejectedValue(new Error("FORBIDDEN"));
     expect((await DELETE(request(), context())).status).toBe(403);
     expect(deletePoster).not.toHaveBeenCalled();
   });

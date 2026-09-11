@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { createProject } from "@/data/companies";
 
 const projectInput = z.object({
@@ -9,7 +9,7 @@ const projectInput = z.object({
 
 export async function POST(request: Request) {
   try {
-    const session = await requireRequestSuperAdmin(request);
+    const session = await requireRequestAdmin(request);
     const parsed = projectInput.safeParse(await request.json());
     if (!parsed.success) {
       return Response.json({ message: "Select a company and enter a valid project name." }, { status: 400 });

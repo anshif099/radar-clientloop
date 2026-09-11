@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, max, ne } from "drizzle-orm";
 import { auth } from "@/auth/server";
-import { authSessions, authUsers } from "@/db/auth-schema";
+import { authSessions, authUsers, subAdminProfiles } from "@/db/auth-schema";
 import { db, withAgency, withPlatformAdmin } from "@/db/client";
 import {
   agencies,
@@ -24,6 +24,7 @@ import {
 import { toSlug } from "@/lib/slug";
 import { contentTypeFromMime, type ContentType } from "@/domain/asset-types";
 import type { CategorizedWork, WorkClassification } from "@/domain/work-categories";
+import type { SubAdminPosition } from "@/domain/sub-admins";
 
 export interface CompanyContext {
   agencyId: string;
@@ -64,6 +65,8 @@ export interface CompanyPoster extends CategorizedWork {
   originalName: string;
   comments: number;
   note: string;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
 }
 
 export interface CompanyProject {
@@ -82,12 +85,84 @@ export interface AdminPosterVersion {
   contentType: ContentType;
   originalName: string;
   isCurrent: boolean;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
   review: {
     decision: "APPROVE" | "REQUEST_CHANGES" | "REJECT";
     reviewerLabel: string;
     decidedAt: string;
     feedback: string[];
   } | null;
+}
+
+export interface SubAdminSummary {
+  id: string;
+  name: string;
+  email: string;
+  position: SubAdminPosition;
+  createdAt: Date;
+}
+
+export async function listSubAdmins(): Promise<SubAdminSummary[]> {
+  const rows = await withPlatformAdmin((transaction) => transaction
+    .select({
+      id: authUsers.id,
+      name: authUsers.name,
+      email: authUsers.email,
+      position: subAdminProfiles.position,
+      createdAt: subAdminProfiles.createdAt,
+    })
+    .from(subAdminProfiles)
+    .innerJoin(authUsers, eq(authUsers.id, subAdminProfiles.authUserId))
+    .where(and(eq(authUsers.role, "subadmin"), eq(authUsers.banned, false)))
+    .orderBy(desc(subAdminProfiles.createdAt)));
+  return rows as SubAdminSummary[];
+}
+
+export async function createSubAdmin(input: {
+  name: string;
+  email: string;
+  password: string;
+  position: SubAdminPosition;
+  actorId: string;
+}) {
+  const createdAuth = await auth.api.createUser({
+    body: {
+      name: input.name.trim(),
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      role: "user",
+    },
+  });
+  try {
+    await withPlatformAdmin(async (transaction) => {
+      await transaction.update(authUsers).set({ role: "subadmin", updatedAt: new Date() }).where(eq(authUsers.id, createdAuth.user.id));
+      await transaction.insert(subAdminProfiles).values({
+        authUserId: createdAuth.user.id,
+        position: input.position,
+        createdByUserId: input.actorId,
+      });
+    });
+    return {
+      id: createdAuth.user.id,
+      name: input.name.trim(),
+      email: input.email.trim().toLowerCase(),
+      position: input.position,
+      createdAt: new Date(),
+    };
+  } catch (error) {
+    await db.delete(authUsers).where(eq(authUsers.id, createdAuth.user.id));
+    throw error;
+  }
+}
+
+export async function getSubAdminPosition(authUserId: string) {
+  const rows = await withPlatformAdmin((transaction) => transaction
+    .select({ position: subAdminProfiles.position })
+    .from(subAdminProfiles)
+    .where(eq(subAdminProfiles.authUserId, authUserId))
+    .limit(1));
+  return rows[0]?.position ?? null;
 }
 
 export interface AdminPoster extends CategorizedWork {
@@ -561,6 +636,9 @@ export async function createPoster(input: {
   mimeType: string;
   sizeBytes: number;
   actorId: string;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
+  publishedAt: Date;
 } & WorkClassification) {
   return withPlatformAdmin(async (transaction) => {
     const [project] = await transaction
@@ -593,7 +671,7 @@ export async function createPoster(input: {
       subcategory: input.subcategory,
       description: input.note || null,
       status: "AWAITING_CLIENT_REVIEW" as const,
-      firstPublishedAt: now,
+      firstPublishedAt: input.publishedAt,
     };
     await transaction.insert(workItems).values(item);
     const version = {
@@ -603,7 +681,9 @@ export async function createPoster(input: {
       versionNumber: 1,
       status: "PUBLISHED" as const,
       note: input.note || null,
-      publishedAt: now,
+      publishedAt: input.publishedAt,
+      uploadedByName: input.uploadedByName,
+      uploadedByPosition: input.uploadedByPosition,
     };
     await transaction.insert(workItemVersions).values(version);
     await transaction.insert(versionAssets).values({
@@ -654,6 +734,9 @@ export async function createPosterVersion(input: {
   mimeType: string;
   sizeBytes: number;
   actorId: string;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
+  publishedAt: Date;
 } & WorkClassification) {
   return withPlatformAdmin(async (transaction) => {
     const [item] = await transaction
@@ -700,7 +783,9 @@ export async function createPosterVersion(input: {
       versionNumber,
       status: "PUBLISHED" as const,
       note: input.note || null,
-      publishedAt: now,
+      publishedAt: input.publishedAt,
+      uploadedByName: input.uploadedByName,
+      uploadedByPosition: input.uploadedByPosition,
     };
 
     await transaction.insert(assets).values(asset);
@@ -1018,6 +1103,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         versionNumber: workItemVersions.versionNumber,
         versionNote: workItemVersions.note,
         publishedAt: workItemVersions.publishedAt,
+        uploadedByName: workItemVersions.uploadedByName,
+        uploadedByPosition: workItemVersions.uploadedByPosition,
         assetId: assets.id,
         reviewId: reviewDecisions.id,
         mimeType: assets.detectedMimeType,
@@ -1109,6 +1196,8 @@ export async function listPostersForAdmin(): Promise<AdminPoster[]> {
         contentType: contentTypeFromMime(row.mimeType),
         originalName: row.originalName ?? "",
         isCurrent: row.versionId === row.currentVersionId,
+        uploadedByName: row.uploadedByName,
+        uploadedByPosition: row.uploadedByPosition,
         review: row.reviewId && row.reviewDecision && row.reviewerLabel && row.decidedAt
           ? {
               decision: row.reviewDecision,
@@ -1216,6 +1305,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
         reviewDecision: reviewDecisions.decision,
         assetId: assets.id,
         note: workItemVersions.note,
+        uploadedByName: workItemVersions.uploadedByName,
+        uploadedByPosition: workItemVersions.uploadedByPosition,
         mimeType: assets.detectedMimeType,
         originalName: assets.originalName,
         comments: count(reviewDecisions.id),
@@ -1285,6 +1376,8 @@ export async function listCompanyPosters(context: CompanyContext): Promise<Compa
       originalName: row.originalName,
       comments: Number(row.comments),
       note: row.note ?? "",
+      uploadedByName: row.uploadedByName,
+      uploadedByPosition: row.uploadedByPosition,
     }));
   });
 }

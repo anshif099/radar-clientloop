@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { getServerSession } from "@/auth/server";
+import { getServerSession, isAdminRole } from "@/auth/server";
 import { AdminDashboard } from "@/components/admin-dashboard";
-import { listCompaniesForAdmin, listPostersForAdmin, listProjectsForAdmin } from "@/data/companies";
+import { getSubAdminPosition, listCompaniesForAdmin, listPostersForAdmin, listProjectsForAdmin, listSubAdmins } from "@/data/companies";
 import { posterStorageConfigured } from "@/storage/filesystem";
 
 export const dynamic = "force-dynamic";
@@ -9,11 +9,14 @@ export const dynamic = "force-dynamic";
 export default async function AdminPage() {
   const session = await getServerSession().catch(() => null);
   if (!session) redirect("/login");
-  if (session.user.role !== "admin") redirect("/company");
-  const [companyRows, projectRows, posters] = await Promise.all([
+  if (!isAdminRole(session.user.role)) redirect("/company");
+  const isSuperAdmin = session.user.role === "admin";
+  const [companyRows, projectRows, posters, subAdmins, adminPosition] = await Promise.all([
     listCompaniesForAdmin(),
     listProjectsForAdmin(),
     listPostersForAdmin(),
+    isSuperAdmin ? listSubAdmins() : Promise.resolve([]),
+    isSuperAdmin ? Promise.resolve("Super Admin") : getSubAdminPosition(session.user.id),
   ]);
   const companies = companyRows.map((company) => ({
     ...company,
@@ -29,6 +32,9 @@ export default async function AdminPage() {
       initialProjects={projects}
       initialPosters={posters}
       adminName={session.user.name}
+      adminPosition={adminPosition ?? "Sub Admin"}
+      isSuperAdmin={isSuperAdmin}
+      initialSubAdmins={subAdmins.map((subAdmin) => ({ ...subAdmin, createdAt: subAdmin.createdAt.toISOString() }))}
       posterStorageConfigured={posterStorageConfigured()}
     />
   );

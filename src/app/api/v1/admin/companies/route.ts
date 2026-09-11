@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin, requireRequestSuperAdmin } from "@/auth/server";
 import { createCompany, listCompaniesForAdmin } from "@/data/companies";
 
 const companyInput = z.object({
@@ -20,7 +20,7 @@ function authError(error: unknown) {
 
 export async function GET(request: Request) {
   try {
-    await requireRequestSuperAdmin(request);
+    await requireRequestAdmin(request);
     return Response.json({ companies: await listCompaniesForAdmin() });
   } catch (error) {
     const response = authError(error);

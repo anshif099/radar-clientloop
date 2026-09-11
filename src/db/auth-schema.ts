@@ -26,12 +26,25 @@ export const authUsers = mysqlTable(
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
     ...authTimestamps,
-    role: mysqlEnum("role", ["admin", "user"]).notNull().default("user"),
+    role: mysqlEnum("role", ["admin", "subadmin", "user"]).notNull().default("user"),
     banned: boolean("banned").notNull().default(false),
     banReason: text("ban_reason"),
     banExpires: timestamp("ban_expires", { mode: "date", fsp: 3 }),
   },
   (table) => [uniqueIndex("auth_users_email_uq").on(table.email)],
+);
+
+export const subAdminProfiles = mysqlTable(
+  "sub_admin_profiles",
+  {
+    authUserId: varchar("auth_user_id", { length: 36 })
+      .primaryKey()
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    position: varchar("position", { length: 80 }).notNull(),
+    createdByUserId: varchar("created_by_user_id", { length: 36 }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date", fsp: 3 }).notNull().defaultNow(),
+  },
+  (table) => [index("sub_admin_profiles_creator_idx").on(table.createdByUserId)],
 );
 
 export const authSessions = mysqlTable(

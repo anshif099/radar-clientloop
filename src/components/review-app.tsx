@@ -52,6 +52,8 @@ export interface ReviewWorkItem extends CategorizedWork {
   originalName: string;
   comments: number;
   note: string;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
 }
 
 export interface ReviewProject {
@@ -228,8 +230,9 @@ function WorkCard({ item, busy, onApprove, onFeedback }: {
       </div>
       <div className="work-body">
         <p className="work-classification">{workClassificationLabel(item)}</p>
+        <p className="work-uploader">Uploaded by <strong>{item.uploadedByName}</strong>{item.uploadedByPosition ? ` · ${item.uploadedByPosition}` : ""}</p>
         <div className="engagement-row"><span><MessageCircleMore size={18} /> {item.comments} reviews</span></div>
-        {item.note ? <p className="work-note"><strong>Rainhopes Team</strong> {item.note}</p> : null}
+        {item.note ? <p className="work-note"><strong>{item.uploadedByName}</strong> {item.note}</p> : null}
         {item.decision === "approved" ? (
           <div className="approved-message" role="status"><CheckCircle2 size={20} /><div><strong>Approved</strong><span>This item is ready to use.</span></div><a href={assetActionHref(item.preview, item.contentType)} target={item.contentType === "website" ? "_blank" : undefined} rel={item.contentType === "website" ? "noopener noreferrer" : undefined} aria-label={item.contentType === "website" ? "Open approved website" : "Download approved file"}>{item.contentType === "website" ? <ExternalLink size={19} /> : <Download size={19} />}</a></div>
         ) : item.decision === "changes" ? (

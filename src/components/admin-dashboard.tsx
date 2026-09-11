@@ -23,6 +23,7 @@ import {
   Settings2,
   Trash2,
   Upload,
+  UserPlus,
   X,
   XCircle,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import { CategoryFilters, UploadCategoryFields } from "./work-categories";
 import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
 import type { RevisionCheck } from "@/domain/quality-tools";
 import { CorrectableInput, CorrectableTextarea } from "./writing-assistant";
+import { subAdminPositions, type SubAdminPosition } from "@/domain/sub-admins";
 
 interface Company {
   id: string;
@@ -67,6 +69,8 @@ interface PosterVersion {
   contentType: ContentType;
   originalName: string;
   isCurrent: boolean;
+  uploadedByName: string;
+  uploadedByPosition: string | null;
   review: {
     decision: ReviewDecision;
     reviewerLabel: string;
@@ -86,10 +90,19 @@ interface AdminPoster extends CategorizedWork {
   versions: PosterVersion[];
 }
 
+interface SubAdmin {
+  id: string;
+  name: string;
+  email: string;
+  position: SubAdminPosition;
+  createdAt: string;
+}
+
 type Message = { kind: "success" | "error"; text: string } | null;
 type DateRange = "day" | "week" | "month" | "year" | "all";
 type Panel =
   | { type: "create-company" }
+  | { type: "create-sub-admin" }
   | { type: "edit-company" }
   | { type: "create-project" }
   | { type: "edit-project" }
@@ -141,6 +154,11 @@ function formatDate(value: string, includeTime = false) {
   }).format(new Date(value));
 }
 
+function localDateTimeValue(date: Date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 function currentVersion(poster: AdminPoster | undefined) {
   return poster?.versions.find((version) => version.isCurrent) ?? poster?.versions[0];
 }
@@ -187,13 +205,19 @@ export function AdminDashboard({
   initialCompanies,
   initialProjects,
   initialPosters,
+  initialSubAdmins,
   adminName,
+  adminPosition,
+  isSuperAdmin,
   posterStorageConfigured,
 }: {
   initialCompanies: Company[];
   initialProjects: Project[];
   initialPosters: AdminPoster[];
+  initialSubAdmins: SubAdmin[];
   adminName: string;
+  adminPosition: string;
+  isSuperAdmin: boolean;
   posterStorageConfigured: boolean;
 }) {
   const initialCompanyId = initialCompanies[0]?.id ?? "";
@@ -202,11 +226,12 @@ export function AdminDashboard({
   const [companies, setCompanies] = useState(initialCompanies);
   const [projects, setProjects] = useState(initialProjects);
   const [posters, setPosters] = useState(initialPosters);
+  const [subAdmins, setSubAdmins] = useState(initialSubAdmins);
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId);
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
   const [selectedPosterId, setSelectedPosterId] = useState(initialPoster?.id ?? "");
   const [selectedVersionId, setSelectedVersionId] = useState(currentVersion(initialPoster)?.id ?? "");
-  const [panel, setPanel] = useState<Panel>(initialCompanies.length ? null : { type: "create-company" });
+  const [panel, setPanel] = useState<Panel>(initialCompanies.length || !isSuperAdmin ? null : { type: "create-company" });
   const [showPassword, setShowPassword] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [categoryFilter, setCategoryFilter] = useState(allCategories);
@@ -299,6 +324,30 @@ export function AdminDashboard({
       setMessage({ kind: "success", text: `${created.name} was created. Add its first project from the sidebar.` });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Company could not be created." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createSubAdmin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/v1/admin/sub-admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(new FormData(formElement))),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      const { subAdmin } = await response.json() as { subAdmin: Omit<SubAdmin, "createdAt"> & { createdAt: string } };
+      setSubAdmins((current) => [{ ...subAdmin, createdAt: new Date(subAdmin.createdAt).toISOString() }, ...current]);
+      setPanel(null);
+      setShowPassword(false);
+      setMessage({ kind: "success", text: `${subAdmin.name} was added as a Sub Admin.` });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Sub Admin could not be created." });
     } finally {
       setBusy(false);
     }
@@ -449,6 +498,16 @@ export function AdminDashboard({
     if (!selectedCompany || !selectedProject) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const publishedAt = new Date(String(form.get("publishedAt") ?? ""));
+    if (Number.isNaN(publishedAt.getTime())) {
+      setMessage({ kind: "error", text: "Choose a valid publish date and time." });
+      return;
+    }
+    if (publishedAt.getTime() > Date.now()) {
+      setMessage({ kind: "error", text: "Publish date and time cannot be in the future." });
+      return;
+    }
+    form.set("publishedAt", publishedAt.toISOString());
     form.set("companyId", selectedCompany.id);
     form.set("projectId", selectedProject.id);
     if (uploadPosterTarget) form.set("posterId", uploadPosterTarget.id);
@@ -458,18 +517,31 @@ export function AdminDashboard({
       const response = await fetch("/api/v1/admin/posters", { method: "POST", body: form });
       if (!response.ok) throw new Error(await responseMessage(response));
       const { poster } = await response.json() as {
-        poster: { id: string; assetId: string; versionId: string; versionNumber: number; title: string; contentType: ContentType; originalName: string } & CategorizedWork;
+        poster: {
+          id: string;
+          assetId: string;
+          versionId: string;
+          versionNumber: number;
+          title: string;
+          contentType: ContentType;
+          originalName: string;
+          publishedAt: string;
+          uploadedByName: string;
+          uploadedByPosition: string | null;
+        } & CategorizedWork;
       };
       const note = String(form.get("note") ?? "");
       const version: PosterVersion = {
         id: poster.versionId,
         versionNumber: poster.versionNumber,
         note,
-        publishedAt: new Date().toISOString(),
+        publishedAt: poster.publishedAt,
         preview: `/api/v1/admin/assets/${poster.assetId}`,
         contentType: poster.contentType,
         originalName: poster.originalName,
         isCurrent: true,
+        uploadedByName: poster.uploadedByName,
+        uploadedByPosition: poster.uploadedByPosition,
         review: null,
       };
 
@@ -496,7 +568,7 @@ export function AdminDashboard({
           category: poster.category,
           subcategory: poster.subcategory,
           status: "AWAITING_CLIENT_REVIEW",
-          createdAt: new Date().toISOString(),
+          createdAt: poster.publishedAt,
           currentVersionNumber: 1,
           versions: [version],
         };
@@ -625,7 +697,7 @@ export function AdminDashboard({
         <div className="admin-sidebar-scroll">
           <div className="admin-sidebar-heading">
             <span>Companies <em>{companies.length}</em></span>
-            <button type="button" onClick={() => setPanel({ type: "create-company" })} aria-label="Add company"><Plus size={16} /></button>
+            {isSuperAdmin ? <button type="button" onClick={() => setPanel({ type: "create-company" })} aria-label="Add company"><Plus size={16} /></button> : null}
           </div>
           <label className="admin-range-filter">
             <Clock3 size={15} />
@@ -661,10 +733,28 @@ export function AdminDashboard({
               </nav>
             </div>
           ) : null}
+
+          {isSuperAdmin ? (
+            <div className="admin-project-nav-wrap">
+              <div className="admin-sidebar-heading">
+                <span>Admin team <em>{subAdmins.length}</em></span>
+                <button type="button" onClick={() => setPanel({ type: "create-sub-admin" })} aria-label="Add Sub Admin"><UserPlus size={16} /></button>
+              </div>
+              <div className="admin-team-list">
+                {subAdmins.map((subAdmin) => (
+                  <div key={subAdmin.id}>
+                    <span className="admin-company-avatar">{subAdmin.name.slice(0, 1).toUpperCase()}</span>
+                    <span><strong>{subAdmin.name}</strong><small>{subAdmin.position}</small></span>
+                  </div>
+                ))}
+                {!subAdmins.length ? <p>No Sub Admins yet</p> : null}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="admin-sidebar-account">
           <span className="admin-user-avatar">{adminName.slice(0, 1).toUpperCase()}</span>
-          <span><strong>{adminName}</strong><small>Super Admin</small></span>
+          <span><strong>{adminName}</strong><small>{adminPosition}</small></span>
           <button type="button" onClick={signOut} aria-label="Sign out"><LogOut size={18} /></button>
         </div>
       </aside>
@@ -676,7 +766,7 @@ export function AdminDashboard({
             {selectedCompany ? <><ChevronRight size={14} /><strong>{selectedCompany.name}</strong></> : null}
             {selectedProject ? <><ChevronRight size={14} /><strong>{selectedProject.name}</strong></> : null}
           </div>
-          {selectedCompany ? (
+          {selectedCompany && isSuperAdmin ? (
             <Link className="admin-subtle-button" href={`/messages?companyId=${selectedCompany.id}`}><MessageSquareText size={16} />Messages</Link>
           ) : null}
           {selectedCompany ? (
@@ -699,9 +789,9 @@ export function AdminDashboard({
           {!selectedCompany ? (
             <section className="admin-empty-workspace">
               <span><Building2 size={30} /></span>
-              <h1>Create your first company</h1>
-              <p>Companies, projects, posters, client decisions, and version history will all be managed here.</p>
-              <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "create-company" })}><Plus size={18} />Add company</button>
+              <h1>{isSuperAdmin ? "Create your first company" : "No companies available"}</h1>
+              <p>{isSuperAdmin ? "Companies, projects, posters, client decisions, and version history will all be managed here." : "Ask the Super Admin to add a company. You can manage its projects and posters after it is created."}</p>
+              {isSuperAdmin ? <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "create-company" })}><Plus size={18} />Add company</button> : null}
             </section>
           ) : !selectedProject ? (
             <section className="admin-empty-workspace">
@@ -778,6 +868,7 @@ export function AdminDashboard({
                         <div className="admin-version-summary">
                           <div><span>Version</span><strong>v{selectedVersion.versionNumber}{selectedVersion.isCurrent ? " · Current" : ""}</strong></div>
                           <div><span>Published</span><strong>{formatDate(selectedVersion.publishedAt)}</strong></div>
+                          <div><span>Uploaded by</span><strong>{selectedVersion.uploadedByName}</strong><small>{selectedVersion.uploadedByPosition}</small></div>
                         </div>
                         {(() => {
                           const status = reviewPresentation(selectedVersion);
@@ -807,6 +898,7 @@ export function AdminDashboard({
                                 <button className={`admin-version-select${version.id === selectedVersion.id ? " active" : ""}`} type="button" onClick={() => setSelectedVersionId(version.id)}>
                                   <span className="admin-version-thumb"><AssetPreview src={version.preview} title="" contentType={version.contentType} compact /></span>
                                   <span><strong>Version {version.versionNumber}</strong><small>{formatDate(version.publishedAt)} · {status.label}</small></span>
+                                  <small className="admin-version-uploader">{version.uploadedByName}{version.uploadedByPosition ? ` · ${version.uploadedByPosition}` : ""}</small>
                                   {version.isCurrent ? <em>Current</em> : <ChevronRight size={15} />}
                                 </button>
                                 <button className="admin-version-delete" type="button" disabled={busy} onClick={() => void deletePosterVersion(version)} aria-label={`Delete version ${version.versionNumber}`} title={`Delete version ${version.versionNumber}`}><Trash2 size={15} /></button>
@@ -832,13 +924,26 @@ export function AdminDashboard({
         </div>
       </main>
 
-      {panel?.type === "create-company" ? (
+      {panel?.type === "create-company" && isSuperAdmin ? (
         <ModalFrame eyebrow="Company access" title="Add company" onClose={() => companies.length ? setPanel(null) : undefined}>
           <form className="admin-modal-form" onSubmit={createCompany}>
             <label>Company name<input name="name" minLength={2} maxLength={180} placeholder="e.g. Acme Foods" autoFocus required /></label>
             <label>Login email<input name="email" type="email" maxLength={320} placeholder="client@company.com" required /></label>
             <label>Temporary password<div className="admin-password-field"><input name="password" type={showPassword ? "text" : "password"} minLength={12} maxLength={128} required /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div><small>Use at least 12 characters.</small></label>
             <button className="admin-primary-button" type="submit" disabled={busy}>{busy ? "Creating…" : "Create company"}</button>
+          </form>
+        </ModalFrame>
+      ) : null}
+
+      {panel?.type === "create-sub-admin" && isSuperAdmin ? (
+        <ModalFrame eyebrow="Admin team" title="Add Sub Admin" onClose={() => setPanel(null)}>
+          <form className="admin-modal-form" onSubmit={createSubAdmin}>
+            <label>Sub Admin name<input name="name" minLength={2} maxLength={160} placeholder="e.g. Fathima Ali" autoFocus required /></label>
+            <label>Working position<select name="position" defaultValue="Developer" required>{subAdminPositions.map((position) => <option value={position} key={position}>{position}</option>)}</select></label>
+            <label>Login email<input name="email" type="email" maxLength={320} placeholder="team@company.com" required /></label>
+            <label>Temporary password<div className="admin-password-field"><input name="password" type={showPassword ? "text" : "password"} minLength={12} maxLength={128} required /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div><small>Use at least 12 characters.</small></label>
+            <p className="admin-form-help">Sub Admins can manage projects, posters, versions, and messages. They cannot add or change company accounts.</p>
+            <button className="admin-primary-button" type="submit" disabled={busy}><UserPlus size={17} />{busy ? "Creating…" : "Create Sub Admin"}</button>
           </form>
         </ModalFrame>
       ) : null}
@@ -887,6 +992,7 @@ export function AdminDashboard({
               <label>Title<CorrectableInput name="title" maxLength={220} placeholder="Give this item a clear name" autoFocus required context="title" disabled={busy} /></label>
             )}
             <label>Upload note<CorrectableTextarea name="note" maxLength={3000} rows={3} placeholder={uploadPosterTarget ? "What changed in this version?" : "Optional context for the client"} context="upload-note" disabled={busy} /></label>
+            <label>Publish date and time<input name="publishedAt" type="datetime-local" defaultValue={localDateTimeValue(new Date())} max={localDateTimeValue(new Date())} required disabled={busy} /><small>Defaults to now. Past dates are allowed; future dates are not.</small></label>
             <UploadCategoryFields key={`category-${uploadPosterTarget?.id ?? "new"}`} initialValue={uploadPosterTarget} disabled={busy} />
             <UploadContentFields key={uploadPosterTarget?.id ?? "new"} initialType={currentVersion(uploadPosterTarget)?.contentType} disabled={busy} />
             {message?.kind === "error" ? <p className="upload-error" role="alert">{message.text}</p> : null}

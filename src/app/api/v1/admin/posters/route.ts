@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import {
   createPoster,
   createPosterVersion,
   getCompanyForAdmin,
   getProjectForAdmin,
+  getSubAdminPosition,
 } from "@/data/companies";
 import { deleteObject, putObject } from "@/storage/filesystem";
 import { contentTypeOptions, isContentType, normalizeWebsiteUrl, websiteMimeType } from "@/domain/asset-types";
@@ -21,13 +22,15 @@ export async function POST(request: Request) {
   let storageKey: string | null = null;
 
   try {
-    const session = await requireRequestSuperAdmin(request);
+    const session = await requireRequestAdmin(request);
     const form = await request.formData();
     const companyId = value(form, "companyId");
     const projectId = value(form, "projectId");
     const posterId = value(form, "posterId");
     const title = value(form, "title");
     const note = value(form, "note");
+    const requestedPublishedAt = value(form, "publishedAt");
+    const publishedAt = requestedPublishedAt ? new Date(requestedPublishedAt) : new Date();
     const file = form.get("file");
     const contentType = value(form, "contentType") || "image";
     const classification = parseWorkClassification(value(form, "category"), value(form, "subcategory"));
@@ -42,6 +45,12 @@ export async function POST(request: Request) {
     ) {
       return Response.json({ message: "Company, project, and poster title are required." }, { status: 400 });
     }
+    if (Number.isNaN(publishedAt.getTime())) {
+      return Response.json({ message: "Choose a valid publish date and time." }, { status: 400 });
+    }
+    if (publishedAt.getTime() > Date.now()) {
+      return Response.json({ message: "Publish date and time cannot be in the future." }, { status: 400 });
+    }
     if (!isContentType(contentType)) {
       return Response.json({ message: "Select a supported content type." }, { status: 400 });
     }
@@ -53,6 +62,9 @@ export async function POST(request: Request) {
     if (!company) return Response.json({ message: "Company not found." }, { status: 404 });
     const project = await getProjectForAdmin(companyId, projectId);
     if (!project) return Response.json({ message: "Project not found for the selected company." }, { status: 404 });
+    const uploadedByPosition = session.user.role === "subadmin"
+      ? await getSubAdminPosition(session.user.id) ?? "Sub Admin"
+      : "Super Admin";
 
     let bytes: Uint8Array;
     let mimeType: string;
@@ -96,18 +108,29 @@ export async function POST(request: Request) {
       mimeType,
       sizeBytes: bytes.byteLength,
       actorId: session.user.id,
+      uploadedByName: session.user.name,
+      uploadedByPosition,
+      publishedAt,
     };
     const poster = posterId
       ? await createPosterVersion({ ...fileDetails, posterId })
       : await createPoster({ ...fileDetails, title });
-    return Response.json({ poster: { ...poster, ...classification, contentType, originalName } }, { status: 201 });
+    return Response.json({ poster: {
+      ...poster,
+      ...classification,
+      contentType,
+      originalName,
+      publishedAt: publishedAt.toISOString(),
+      uploadedByName: session.user.name,
+      uploadedByPosition,
+    } }, { status: 201 });
   } catch (error) {
     if (storageKey) await deleteObject(storageKey).catch(() => undefined);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") {
       return Response.json({ message: "Please sign in." }, { status: 401 });
     }
     if (error instanceof Error && error.message === "FORBIDDEN") {
-      return Response.json({ message: "Super Admin access is required." }, { status: 403 });
+      return Response.json({ message: "Admin access is required." }, { status: 403 });
     }
     if (error instanceof Error && error.message === "POSTER_NOT_FOUND") {
       return Response.json({ message: "Poster not found in the selected project." }, { status: 404 });

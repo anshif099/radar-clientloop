@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { analyzeRevision, RevisionComparisonInputError } from "@/revision/revision-check";
 import { assertChatOrigin } from "@/auth/chat";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { getRevisionComparisonSource } from "@/data/revision-comparison";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request, context: { params: Promise<{ posterId: string }> }) {
   try {
     assertChatOrigin(request);
-    await requireRequestSuperAdmin(request);
+    await requireRequestAdmin(request);
     const { posterId } = await context.params;
     if (!z.uuid().safeParse(posterId).success) return Response.json({ message: "Poster not found." }, { status: 404 });
     const source = await getRevisionComparisonSource(posterId);

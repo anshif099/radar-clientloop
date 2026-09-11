@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/auth/server", () => ({ requireRequestSuperAdmin: vi.fn() }));
-vi.mock("@/data/companies", () => ({ createPoster: vi.fn(), createPosterVersion: vi.fn(), getCompanyForAdmin: vi.fn(), getProjectForAdmin: vi.fn() }));
+vi.mock("@/auth/server", () => ({ requireRequestAdmin: vi.fn() }));
+vi.mock("@/data/companies", () => ({ createPoster: vi.fn(), createPosterVersion: vi.fn(), getCompanyForAdmin: vi.fn(), getProjectForAdmin: vi.fn(), getSubAdminPosition: vi.fn() }));
 vi.mock("@/storage/filesystem", () => ({ putObject: vi.fn(), deleteObject: vi.fn() }));
 
-import { requireRequestSuperAdmin } from "@/auth/server";
-import { createPoster, createPosterVersion, getCompanyForAdmin, getProjectForAdmin } from "@/data/companies";
+import { requireRequestAdmin } from "@/auth/server";
+import { createPoster, createPosterVersion, getCompanyForAdmin, getProjectForAdmin, getSubAdminPosition } from "@/data/companies";
 import { deleteObject, putObject } from "@/storage/filesystem";
 import { POST } from "./route";
 
@@ -28,7 +28,7 @@ function request(form: FormData) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(requireRequestSuperAdmin).mockResolvedValue({ user: { id: "admin" } } as Awaited<ReturnType<typeof requireRequestSuperAdmin>>);
+  vi.mocked(requireRequestAdmin).mockResolvedValue({ user: { id: "admin", name: "ClientLoop Super Admin", role: "admin" } } as Awaited<ReturnType<typeof requireRequestAdmin>>);
   vi.mocked(getCompanyForAdmin).mockResolvedValue({ id: companyId, workspaceId: "workspace" } as Awaited<ReturnType<typeof getCompanyForAdmin>>);
   vi.mocked(getProjectForAdmin).mockResolvedValue({ id: projectId } as Awaited<ReturnType<typeof getProjectForAdmin>>);
   vi.mocked(createPoster).mockResolvedValue({ id: posterId, assetId: companyId, versionId: projectId, versionNumber: 1, title: "Client review" });
@@ -45,6 +45,38 @@ it("publishes a website without requiring a file", async () => {
   expect(createPoster).toHaveBeenCalledWith(expect.objectContaining({ mimeType: "text/uri-list", originalName: "example.com" }));
   expect(new TextDecoder().decode(vi.mocked(putObject).mock.calls[0][0].bytes)).toBe("https://example.com/?q=design#v2\r\n");
   expect((await response.json()).poster.contentType).toBe("website");
+});
+it("attributes a past-dated upload to the signed-in Sub Admin", async () => {
+  const publishedAt = "2025-08-10T09:30:00.000Z";
+  vi.mocked(requireRequestAdmin).mockResolvedValue({ user: { id: "sub-admin", name: "Amina", role: "subadmin" } } as Awaited<ReturnType<typeof requireRequestAdmin>>);
+  vi.mocked(getSubAdminPosition).mockResolvedValue("WordPress Developer");
+  const form = formRequest("website");
+  form.set("websiteUrl", "https://example.com/design");
+  form.set("publishedAt", publishedAt);
+
+  const response = await POST(request(form));
+
+  expect(response.status).toBe(201);
+  expect(createPoster).toHaveBeenCalledWith(expect.objectContaining({
+    actorId: "sub-admin",
+    uploadedByName: "Amina",
+    uploadedByPosition: "WordPress Developer",
+    publishedAt: new Date(publishedAt),
+  }));
+  expect((await response.json()).poster).toMatchObject({
+    uploadedByName: "Amina",
+    uploadedByPosition: "WordPress Developer",
+    publishedAt,
+  });
+});
+it("rejects a future publish date before storing content", async () => {
+  const form = formRequest("website");
+  form.set("websiteUrl", "https://example.com/design");
+  form.set("publishedAt", new Date(Date.now() + 60_000).toISOString());
+
+  expect((await POST(request(form))).status).toBe(400);
+  expect(putObject).not.toHaveBeenCalled();
+  expect(createPoster).not.toHaveBeenCalled();
 });
 it("uses detected content even when the browser supplies a generic MIME type", async () => {
   const form = formRequest("pdf", new File(["%PDF-1.7"], "design.pdf", { type: "application/octet-stream" }));
@@ -79,7 +111,7 @@ it("cleans up the new stored asset if the target version cannot be found", async
   expect(deleteObject).toHaveBeenCalledWith(vi.mocked(putObject).mock.calls[0][0].key);
 });
 it("requires admin authorization before publishing any content", async () => {
-  vi.mocked(requireRequestSuperAdmin).mockRejectedValue(new Error("FORBIDDEN"));
+  vi.mocked(requireRequestAdmin).mockRejectedValue(new Error("FORBIDDEN"));
   expect((await POST(request(formRequest("website")))).status).toBe(403);
   expect(putObject).not.toHaveBeenCalled();
 });

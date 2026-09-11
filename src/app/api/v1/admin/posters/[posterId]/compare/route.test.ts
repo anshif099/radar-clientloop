@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/auth/chat", () => ({ assertChatOrigin: vi.fn() }));
-vi.mock("@/auth/server", () => ({ requireRequestSuperAdmin: vi.fn() }));
+vi.mock("@/auth/server", () => ({ requireRequestAdmin: vi.fn() }));
 vi.mock("@/data/revision-comparison", () => ({ getRevisionComparisonSource: vi.fn() }));
 vi.mock("@/revision/revision-check", () => ({
   RevisionComparisonInputError: class RevisionComparisonInputError extends Error {},
   analyzeRevision: vi.fn(),
 }));
 import { analyzeRevision } from "@/revision/revision-check";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { getRevisionComparisonSource } from "@/data/revision-comparison";
 import { POST } from "./route";
 
@@ -27,7 +27,7 @@ function context(id = posterId) { return { params: Promise.resolve({ posterId: i
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(requireRequestSuperAdmin).mockResolvedValue({ user: { id: "admin" } } as Awaited<ReturnType<typeof requireRequestSuperAdmin>>);
+  vi.mocked(requireRequestAdmin).mockResolvedValue({ user: { id: "admin" } } as Awaited<ReturnType<typeof requireRequestAdmin>>);
   vi.mocked(getRevisionComparisonSource).mockResolvedValue(source);
 });
 

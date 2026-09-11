@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/auth/server", () => ({ getRequestSession: vi.fn() }));
+vi.mock("@/auth/server", () => ({ getRequestSession: vi.fn(), isAdminRole: (role: string) => role === "admin" || role === "subadmin" }));
 vi.mock("@/data/companies", () => ({ getCompanyAsset: vi.fn(), getCompanyContextForIdentity: vi.fn() }));
 vi.mock("@/storage/asset-response", () => ({ assetResponse: vi.fn() }));
 

@@ -33,6 +33,16 @@ export async function requireRequestSuperAdmin(request: Request) {
   return session;
 }
 
+export function isAdminRole(role: string | null | undefined) {
+  return role === "admin" || role === "subadmin";
+}
+
+export async function requireRequestAdmin(request: Request) {
+  const session = await requireRequestSession(request);
+  if (!isAdminRole(session.user.role)) throw new Error("FORBIDDEN");
+  return session;
+}
+
 export async function requireServerSession() {
   const session = await getServerSession();
   if (!session) throw new Error("UNAUTHENTICATED");
@@ -42,5 +52,11 @@ export async function requireServerSession() {
 export async function requireSuperAdmin() {
   const session = await requireServerSession();
   if (session.user.role !== "admin") throw new Error("FORBIDDEN");
+  return session;
+}
+
+export async function requireAdmin() {
+  const session = await requireServerSession();
+  if (!isAdminRole(session.user.role)) throw new Error("FORBIDDEN");
   return session;
 }

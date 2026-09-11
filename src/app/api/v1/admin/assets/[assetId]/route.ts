@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { getAdminAsset } from "@/data/companies";
 import { assetResponse } from "@/storage/asset-response";
 
 export async function GET(request: Request, context: { params: Promise<{ assetId: string }> }) {
   try {
-    await requireRequestSuperAdmin(request);
+    await requireRequestAdmin(request);
     const { assetId } = await context.params;
     if (!z.uuid().safeParse(assetId).success) {
       return Response.json({ message: "Asset not found." }, { status: 404 });

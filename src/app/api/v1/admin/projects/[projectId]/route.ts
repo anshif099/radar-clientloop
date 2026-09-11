@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { deleteProject, updateProject } from "@/data/companies";
 
 const projectInput = z.object({
@@ -21,7 +21,7 @@ export async function PATCH(
   route: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    const session = await requireRequestSuperAdmin(request);
+    const session = await requireRequestAdmin(request);
     const { projectId } = await route.params;
     if (!z.uuid().safeParse(projectId).success) {
       return Response.json({ message: "Select a valid project." }, { status: 400 });
@@ -52,7 +52,7 @@ export async function DELETE(
   route: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    const session = await requireRequestSuperAdmin(request);
+    const session = await requireRequestAdmin(request);
     const { projectId } = await route.params;
     if (!z.uuid().safeParse(projectId).success) {
       return Response.json({ message: "Select a valid project." }, { status: 400 });

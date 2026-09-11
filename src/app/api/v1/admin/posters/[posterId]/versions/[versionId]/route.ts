@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireRequestSuperAdmin } from "@/auth/server";
+import { requireRequestAdmin } from "@/auth/server";
 import { deletePosterVersion } from "@/data/companies";
 import { deleteObject } from "@/storage/filesystem";
 
@@ -8,7 +8,7 @@ export async function DELETE(
   route: { params: Promise<{ posterId: string; versionId: string }> },
 ) {
   try {
-    const session = await requireRequestSuperAdmin(request);
+    const session = await requireRequestAdmin(request);
     const { posterId, versionId } = await route.params;
     if (!z.uuid().safeParse(posterId).success || !z.uuid().safeParse(versionId).success) {
       return Response.json({ message: "Select a valid poster version." }, { status: 400 });

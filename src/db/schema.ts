@@ -194,6 +194,8 @@ export const workItemVersions = mysqlTable(
     note: text("note"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id),
     publishedAt: timestamp("published_at", { mode: "date", fsp: 3 }),
+    uploadedByName: varchar("uploaded_by_name", { length: 160 }).notNull().default("ClientLoop Super Admin"),
+    uploadedByPosition: varchar("uploaded_by_position", { length: 80 }),
     ...timestamps,
   },
   (table) => [

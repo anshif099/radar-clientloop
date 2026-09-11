@@ -1,12 +1,12 @@
 import "server-only";
-import { requireRequestSession } from "@/auth/server";
+import { isAdminRole, requireRequestSession } from "@/auth/server";
 import { getCompanyContextForIdentity, getCompanyForAdmin } from "@/data/companies";
 import type { ChatScope } from "@/data/chat";
 
 export async function requireChatScope(request: Request): Promise<ChatScope> {
   const session = await requireRequestSession(request);
   const companyId = new URL(request.url).searchParams.get("companyId");
-  if (session.user.role === "admin") {
+  if (isAdminRole(session.user.role)) {
     const company = companyId ? await getCompanyForAdmin(companyId) : null;
     if (!company) throw new Error("NOT_FOUND");
     return { agencyId: company.id, workspaceId: company.workspaceId, companyName: company.name, userId: session.user.id, userName: session.user.name, role: "ADMIN" };

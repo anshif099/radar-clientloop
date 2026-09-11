@@ -1,11 +1,11 @@
-import { getRequestSession } from "@/auth/server";
+import { getRequestSession, isAdminRole } from "@/auth/server";
 import { getCompanyAsset, getCompanyContextForIdentity } from "@/data/companies";
 import { assetResponse } from "@/storage/asset-response";
 import { z } from "zod";
 
 export async function GET(request: Request, context: { params: Promise<{ assetId: string }> }) {
   const session = await getRequestSession(request).catch(() => null);
-  if (!session || session.user.role === "admin") {
+  if (!session || isAdminRole(session.user.role)) {
     return Response.json({ message: "Not authorized." }, { status: 401 });
   }
 

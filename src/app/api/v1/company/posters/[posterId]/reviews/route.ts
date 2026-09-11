@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getRequestSession } from "@/auth/server";
+import { getRequestSession, isAdminRole } from "@/auth/server";
 import { getCompanyContextForIdentity, recordCompanyDecision } from "@/data/companies";
 
 const reviewInput = z
@@ -14,7 +14,7 @@ const reviewInput = z
 
 export async function POST(request: Request, route: { params: Promise<{ posterId: string }> }) {
   const session = await getRequestSession(request).catch(() => null);
-  if (!session || session.user.role === "admin") {
+  if (!session || isAdminRole(session.user.role)) {
     return Response.json({ message: "Please sign in with a company account." }, { status: 401 });
   }
   const company = await getCompanyContextForIdentity(session.user.id);
