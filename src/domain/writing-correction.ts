@@ -21,6 +21,7 @@ const spelling: Record<string, string> = {
   isnt: "isn't",
   occured: "occurred",
   plase: "please",
+  postar: "poster",
   recomend: "recommend",
   recieve: "receive",
   recieved: "received",

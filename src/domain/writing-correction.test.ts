@@ -17,6 +17,10 @@ describe("local writing correction", () => {
     expect(correctWriting("aplication form").correctedText).toBe("Application form");
   });
 
+  it("corrects poster while preserving the surrounding Manglish word", () => {
+    expect(correctWriting("uthradam postar").correctedText).toBe("Uthradam poster");
+  });
+
   it("does not modify Malayalam text", () => {
     const source = "ഇത് പരിശോധിക്കുക";
     expect(correctWriting(source)).toEqual({ correctedText: source, changes: [], language: "Malayalam" });
