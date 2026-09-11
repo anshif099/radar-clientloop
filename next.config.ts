@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   reactStrictMode: true,
+  // Keep the Hunspell files next to dictionary-en so its Node.js file loader
+  // can resolve them at runtime instead of bundling them as JavaScript.
+  serverExternalPackages: ["dictionary-en", "nspell"],
   experimental: {
     // Shared hosts can expose many CPUs while enforcing a small memory/process
     // quota. Keep SWC-WASM page-data generation inside that quota.

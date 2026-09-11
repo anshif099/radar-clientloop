@@ -1,7 +1,14 @@
+import { Buffer } from "node:buffer";
+import dictionary from "dictionary-en";
+import nspell from "nspell";
 import type { WritingCorrection } from "./quality-tools";
 
 const spelling: Record<string, string> = {
   adress: "address",
+  applicaiton: "application",
+  aplication: "application",
+  appliction: "application",
+  applitacion: "application",
   becuase: "because",
   cant: "can't",
   currection: "correction",
@@ -25,6 +32,40 @@ const spelling: Record<string, string> = {
   youre: "you're",
 };
 
+const englishSpelling = nspell({
+  aff: Buffer.from(dictionary.aff),
+  dic: Buffer.from(dictionary.dic),
+});
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        (previous[rightIndex] ?? 0) + 1,
+        (current[rightIndex - 1] ?? 0) + 1,
+        (previous[rightIndex - 1] ?? 0) + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? right.length;
+}
+
+function dictionaryCorrection(word: string) {
+  // Avoid guessing at names, acronyms, short words, or Manglish. Automatically
+  // apply only an unambiguous one-edit English dictionary suggestion.
+  if (word.length < 4 || word !== word.toLowerCase() || englishSpelling.correct(word)) return undefined;
+  const suggestions = [...new Set(englishSpelling.suggest(word).map((suggestion) => suggestion.toLowerCase()))]
+    .filter((suggestion) => /^[a-z']+$/.test(suggestion));
+  if (!suggestions.length) return undefined;
+  const scored = suggestions.map((suggestion) => ({ suggestion, distance: editDistance(word, suggestion) }));
+  const nearestDistance = Math.min(...scored.map(({ distance }) => distance));
+  const nearest = scored.filter(({ distance }) => distance === nearestDistance);
+  return nearestDistance === 1 && nearest.length === 1 ? nearest[0]?.suggestion : undefined;
+}
+
 function preserveCase(source: string, replacement: string) {
   if (source === source.toUpperCase()) return replacement.toUpperCase();
   if (source[0] === source[0]?.toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
@@ -46,7 +87,7 @@ export function correctWriting(source: string): WritingCorrection {
   });
 
   text = text.replace(/\b[A-Za-z']+\b/g, (word) => {
-    const replacement = spelling[word.toLowerCase()];
+    const replacement = spelling[word.toLowerCase()] ?? dictionaryCorrection(word);
     if (!replacement) return word;
     const corrected = preserveCase(word, replacement);
     changes.add(`Corrected "${word}" to "${corrected}"`);
