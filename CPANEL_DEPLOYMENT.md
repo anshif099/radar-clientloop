@@ -37,7 +37,7 @@ Replace `CPANEL_USER` with the current cPanel username. Do not create a public U
 
 ## 4. Create the Node.js application
 
-Chat attachments use this same private uploads directory. Back it up together with the database. After deploying the chat update, run `npm run db:migrate` to apply `0004_chat_and_local_ai.sql`. Writing correction and revision comparison are deterministic local functions and require no AI service or API credentials. Keep the runtime `sharp` dependency installed for image comparison and existing file processing.
+Chat attachments use this same private uploads directory. Back it up together with the database. Always run `npm run db:migrate` after uploading an update; the poster-request and poster-specific-chat release requires `0006_brand_requests_and_poster_chat.sql`. Writing correction and revision comparison are deterministic local functions and require no AI service or API credentials. Keep the runtime `sharp` dependency installed for image comparison and existing file processing.
 
 Open **Setup Node.js App** and select **Create Application**:
 

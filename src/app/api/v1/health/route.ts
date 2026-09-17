@@ -11,6 +11,7 @@ export async function GET() {
       {
         status: "ok",
         service: "clientloop-web",
+        release: "2026-09-17-poster-requests-v1",
         checks: { database: "ok", posterStorage: "ok" },
         timestamp: new Date().toISOString(),
       },
@@ -22,6 +23,7 @@ export async function GET() {
       {
         status: "unavailable",
         service: "clientloop-web",
+        release: "2026-09-17-poster-requests-v1",
         timestamp: new Date().toISOString(),
       },
       { status: 503, headers: { "Cache-Control": "no-store" } },
