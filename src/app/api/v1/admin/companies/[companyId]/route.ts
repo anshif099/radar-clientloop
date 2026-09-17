@@ -6,6 +6,11 @@ const companyInput = z.object({
   name: z.string().trim().min(2).max(180),
   email: z.email().max(320),
   password: z.union([z.literal(""), z.string().min(12).max(128)]).optional(),
+  brand: z.object({
+    text: z.string().max(12000).optional(),
+    links: z.array(z.url()).max(20).optional(),
+    images: z.array(z.url()).max(20).optional(),
+  }).optional(),
 });
 
 function authError(error: unknown) {

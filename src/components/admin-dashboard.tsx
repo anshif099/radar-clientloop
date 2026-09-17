@@ -47,6 +47,7 @@ interface Company {
   email: string;
   posterCount: number;
   createdAt: string;
+  brand: { text?: string; links?: string[]; images?: string[] };
 }
 
 interface Project {
@@ -88,6 +89,8 @@ interface AdminPoster extends CategorizedWork {
   createdAt: string;
   currentVersionNumber: number;
   versions: PosterVersion[];
+  requestPrompt?: string;
+  requestPreview?: string;
 }
 
 interface SubAdmin {
@@ -359,14 +362,19 @@ export function AdminDashboard({
     setBusy(true);
     setMessage(null);
     try {
+      const form = new FormData(event.currentTarget);
+      const lines = (name: string) => String(form.get(name) ?? "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
       const response = await fetch(`/api/v1/admin/companies/${selectedCompany.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+        body: JSON.stringify({
+          name: form.get("name"), email: form.get("email"), password: form.get("password"),
+          brand: { text: String(form.get("brandText") ?? "").trim(), links: lines("brandLinks"), images: lines("brandImages") },
+        }),
       });
       if (!response.ok) throw new Error(await responseMessage(response));
       const result = await response.json() as {
-        company: Pick<Company, "id" | "name" | "slug" | "email">;
+        company: Pick<Company, "id" | "name" | "slug" | "email" | "brand">;
         passwordUpdated: boolean;
       };
       setCompanies((current) => current.map((company) => company.id === result.company.id
@@ -854,7 +862,15 @@ export function AdminDashboard({
                   </section>
 
                   <aside className="admin-poster-inspector">
-                    {selectedPoster && selectedVersion ? (
+                    {selectedPoster && !selectedVersion ? (
+                      <>
+                        <header><div><p className="eyebrow">New poster request</p><h2>{selectedPoster.title}</h2></div></header>
+                        {selectedPoster.requestPreview ? <div className="admin-inspector-preview"><AssetPreview src={selectedPoster.requestPreview} title={`${selectedPoster.title} reference`} contentType="image" /></div> : null}
+                        <section className="admin-team-note"><small>Client prompt</small><p>{selectedPoster.requestPrompt || "No prompt supplied."}</p></section>
+                        <Link className="admin-download-link" href={`/messages?companyId=${selectedPoster.companyId}&post=${selectedPoster.id}`}><MessageSquareText size={16} />Open poster chat</Link>
+                        <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })}><Upload size={18} />Upload poster v1</button>
+                      </>
+                    ) : selectedPoster && selectedVersion ? (
                       <>
                         <header>
                           <div><p className="eyebrow">Poster details</p><h2>{selectedPoster.title}</h2></div>
@@ -954,6 +970,9 @@ export function AdminDashboard({
             <label>Company name<input name="name" minLength={2} maxLength={180} defaultValue={selectedCompany.name} required /></label>
             <label>Login email<input name="email" type="email" maxLength={320} defaultValue={selectedCompany.email} required /></label>
             <label>New password <small>Optional</small><div className="admin-password-field"><input name="password" type={showPassword ? "text" : "password"} minLength={12} maxLength={128} /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
+            <label>Brand guidelines<textarea name="brandText" rows={6} maxLength={12000} defaultValue={selectedCompany.brand?.text ?? ""} placeholder="Logo usage, colours, fonts, tone of voice, and important do/don't rules" /></label>
+            <label>Guideline links <small>One URL per line</small><textarea name="brandLinks" rows={3} defaultValue={(selectedCompany.brand?.links ?? []).join("\n")} placeholder="https://example.com/brand-guide" /></label>
+            <label>Reference image links <small>One image URL per line</small><textarea name="brandImages" rows={3} defaultValue={(selectedCompany.brand?.images ?? []).join("\n")} placeholder="https://example.com/logo.png" /></label>
             <div className="admin-modal-actions"><button className="admin-danger-button" type="button" disabled={busy} onClick={deleteCompany}><Trash2 size={16} />Delete company</button><button className="admin-primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
           </form>
         </ModalFrame>

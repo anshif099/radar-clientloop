@@ -21,6 +21,7 @@ export default async function CompanyPage() {
       initialProjects={projects}
       companyName={context.agencyName}
       viewerName={context.displayName}
+      brand={context.brand ?? {}}
     />
   );
 }

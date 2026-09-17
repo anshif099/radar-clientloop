@@ -33,6 +33,7 @@ export interface CompanyContext {
   workspaceName: string;
   profileUserId: string;
   displayName: string;
+  brand?: { text?: string; links?: string[]; images?: string[] };
 }
 
 export interface CompanySummary {
@@ -42,6 +43,7 @@ export interface CompanySummary {
   email: string;
   posterCount: number;
   createdAt: Date;
+  brand: { text?: string; links?: string[]; images?: string[] };
 }
 
 export interface ProjectSummary {
@@ -174,6 +176,27 @@ export interface AdminPoster extends CategorizedWork {
   createdAt: string;
   currentVersionNumber: number;
   versions: AdminPosterVersion[];
+  requestPrompt?: string;
+  requestPreview?: string;
+}
+
+export async function createPosterRequest(input: { context: CompanyContext; projectId: string; title: string; prompt: string; asset?: { id: string; storageKey: string; originalName: string; mimeType: string; sizeBytes: number } }) {
+  return withAgency(input.context.agencyId, async (transaction) => {
+    const [project] = await transaction.select({ id: divisions.id }).from(divisions).where(and(eq(divisions.id, input.projectId), eq(divisions.agencyId, input.context.agencyId))).limit(1);
+    if (!project) throw new Error("PROJECT_NOT_FOUND");
+    if (input.asset) await transaction.insert(assets).values({ ...input.asset, agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, declaredMimeType: input.asset.mimeType, detectedMimeType: input.asset.mimeType, status: "READY" });
+    const id = randomUUID();
+    await transaction.insert(workItems).values({ id, agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, divisionId: project.id, title: input.title, description: input.prompt, requestAssetId: input.asset?.id ?? null, status: "DRAFT" });
+    await transaction.insert(auditEvents).values({ agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, actorType: "COMPANY", actorId: input.context.profileUserId, action: "POSTER_REQUESTED", resourceType: "WORK_ITEM", resourceId: id, metadata: { projectId: project.id, hasReference: Boolean(input.asset) } });
+    return { id, title: input.title };
+  });
+}
+
+export async function listPosterRequestsForAdmin(): Promise<AdminPoster[]> {
+  return withPlatformAdmin(async (transaction) => {
+    const rows = await transaction.select({ id: workItems.id, companyId: workItems.agencyId, projectId: workItems.divisionId, title: workItems.title, prompt: workItems.description, category: workItems.category, subcategory: workItems.subcategory, createdAt: workItems.createdAt, assetId: assets.id }).from(workItems).innerJoin(agencies, eq(agencies.id, workItems.agencyId)).leftJoin(assets, and(eq(assets.id, workItems.requestAssetId), eq(assets.agencyId, workItems.agencyId))).where(and(eq(workItems.status, "DRAFT"), eq(agencies.status, "ACTIVE"))).orderBy(desc(workItems.createdAt));
+    return rows.filter((row) => row.projectId).map((row) => ({ id: row.id, companyId: row.companyId, projectId: row.projectId!, title: row.title, category: row.category, subcategory: row.subcategory, status: "DRAFT", createdAt: row.createdAt.toISOString(), currentVersionNumber: 0, versions: [], requestPrompt: row.prompt ?? "", requestPreview: row.assetId ? `/api/v1/admin/assets/${row.assetId}` : undefined }));
+  });
 }
 
 export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {
@@ -186,6 +209,7 @@ export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {
         email: users.email,
         posterCount: count(workItems.id),
         createdAt: agencies.createdAt,
+        brand: agencies.brand,
       })
       .from(agencies)
       .innerJoin(
@@ -202,7 +226,7 @@ export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {
   });
 }
 
-export async function getCompanyContextForIdentity(identityProviderId: string) {
+export async function getCompanyContextForIdentity(identityProviderId: string): Promise<CompanyContext | null> {
   const matches = await withPlatformAdmin((transaction) =>
     transaction
       .select({
@@ -212,6 +236,7 @@ export async function getCompanyContextForIdentity(identityProviderId: string) {
         workspaceName: clientWorkspaces.name,
         profileUserId: users.id,
         displayName: users.displayName,
+        brand: agencies.brand,
       })
       .from(users)
       .innerJoin(
@@ -317,6 +342,7 @@ export async function updateCompany(input: {
   name: string;
   email: string;
   actorId: string;
+  brand?: { text?: string; links?: string[]; images?: string[] };
 }) {
   const name = input.name.trim();
   const email = input.email.trim().toLowerCase();
@@ -343,7 +369,7 @@ export async function updateCompany(input: {
     const now = new Date();
     await transaction
       .update(agencies)
-      .set({ name, updatedAt: now })
+      .set({ name, ...(input.brand ? { brand: input.brand } : {}), updatedAt: now })
       .where(eq(agencies.id, company.id));
     await transaction
       .update(clientWorkspaces)
@@ -372,6 +398,7 @@ export async function updateCompany(input: {
       name,
       slug: company.slug,
       email,
+      brand: input.brand ?? {},
       authUserId: company.identityProviderId,
     };
   });
@@ -1288,6 +1315,10 @@ export async function listCompanyProjects(context: CompanyContext): Promise<Comp
       createdAt: row.createdAt.toISOString(),
     }));
   });
+}
+
+export async function listCompanyPosterRefs(context: CompanyContext) {
+  return withAgency(context.agencyId, (transaction) => transaction.select({ id: workItems.id, title: workItems.title }).from(workItems).where(and(eq(workItems.agencyId, context.agencyId), eq(workItems.workspaceId, context.workspaceId), ne(workItems.status, "ARCHIVED"))).orderBy(desc(workItems.createdAt)));
 }
 
 export async function listCompanyPosters(context: CompanyContext): Promise<CompanyPoster[]> {

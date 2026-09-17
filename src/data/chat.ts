@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
 import { db, withAgency } from "@/db/client";
-import { auditEvents, chatAttachments, chatMessages, chatThreads } from "@/db/schema";
+import { auditEvents, chatAttachments, chatMessages, chatThreads, workItems } from "@/db/schema";
 import type { ChatKind, ChatMessage } from "@/domain/chat";
 
 export interface ChatScope {
@@ -17,13 +17,17 @@ export function threadScope(scope: ChatScope) {
   if (!scope.agencyId || !scope.workspaceId || !scope.userId) throw new Error("FORBIDDEN");
   return and(
     eq(chatThreads.agencyId, scope.agencyId), eq(chatThreads.workspaceId, scope.workspaceId),
-    or(and(eq(chatThreads.kind, "COMPANY"), eq(chatThreads.ownerKey, "")), and(eq(chatThreads.kind, "AI"), eq(chatThreads.ownerKey, scope.userId))),
+    or(eq(chatThreads.kind, "COMPANY"), and(eq(chatThreads.kind, "AI"), eq(chatThreads.ownerKey, scope.userId))),
   );
 }
-export async function ensureChatThread(scope: ChatScope, kind: ChatKind) {
-  const ownerKey = kind === "AI" ? scope.userId : "";
+export async function ensureChatThread(scope: ChatScope, kind: ChatKind, posterId?: string) {
+  const ownerKey = kind === "AI" ? scope.userId : posterId ?? "";
   return withAgency(scope.agencyId, async (tx) => {
-    await tx.insert(chatThreads).values({ id: randomUUID(), agencyId: scope.agencyId, workspaceId: scope.workspaceId, kind, ownerKey })
+    if (posterId) {
+      const [item] = await tx.select({ id: workItems.id }).from(workItems).where(and(eq(workItems.id, posterId), eq(workItems.agencyId, scope.agencyId), eq(workItems.workspaceId, scope.workspaceId))).limit(1);
+      if (!item) throw new Error("NOT_FOUND");
+    }
+    await tx.insert(chatThreads).values({ id: randomUUID(), agencyId: scope.agencyId, workspaceId: scope.workspaceId, kind, ownerKey, workItemId: posterId ?? null })
       .onDuplicateKeyUpdate({ set: { ownerKey } });
     const [thread] = await tx.select().from(chatThreads).where(and(threadScope(scope), eq(chatThreads.kind, kind), eq(chatThreads.ownerKey, ownerKey))).limit(1);
     if (!thread) throw new Error("NOT_FOUND");

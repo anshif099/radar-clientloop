@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession, isAdminRole } from "@/auth/server";
 import { AdminDashboard } from "@/components/admin-dashboard";
-import { getSubAdminPosition, listCompaniesForAdmin, listPostersForAdmin, listProjectsForAdmin, listSubAdmins } from "@/data/companies";
+import { getSubAdminPosition, listCompaniesForAdmin, listPosterRequestsForAdmin, listPostersForAdmin, listProjectsForAdmin, listSubAdmins } from "@/data/companies";
 import { posterStorageConfigured } from "@/storage/filesystem";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +11,11 @@ export default async function AdminPage() {
   if (!session) redirect("/login");
   if (!isAdminRole(session.user.role)) redirect("/company");
   const isSuperAdmin = session.user.role === "admin";
-  const [companyRows, projectRows, posters, subAdmins, adminPosition] = await Promise.all([
+  const [companyRows, projectRows, posters, requests, subAdmins, adminPosition] = await Promise.all([
     listCompaniesForAdmin(),
     listProjectsForAdmin(),
     listPostersForAdmin(),
+    listPosterRequestsForAdmin(),
     isSuperAdmin ? listSubAdmins() : Promise.resolve([]),
     isSuperAdmin ? Promise.resolve("Super Admin") : getSubAdminPosition(session.user.id),
   ]);
@@ -30,7 +31,7 @@ export default async function AdminPage() {
     <AdminDashboard
       initialCompanies={companies}
       initialProjects={projects}
-      initialPosters={posters}
+      initialPosters={[...requests, ...posters]}
       adminName={session.user.name}
       adminPosition={adminPosition ?? "Sub Admin"}
       isSuperAdmin={isSuperAdmin}

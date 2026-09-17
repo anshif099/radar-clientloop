@@ -7,7 +7,8 @@ export async function POST(request: Request) {
     const scope = await requireChatScope(request);
     const input = await request.json().catch(() => null);
     if (!input || input.kind !== "COMPANY") throw new ChatInputError("Choose company chat.");
-    const thread = await ensureChatThread(scope, "COMPANY");
+    const posterId = typeof input.posterId === "string" && input.posterId ? input.posterId : undefined;
+    const thread = await ensureChatThread(scope, "COMPANY", posterId);
     return Response.json({ thread: { id: thread.id, kind: thread.kind } }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return chatError(error); }
 }

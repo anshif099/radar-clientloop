@@ -169,6 +169,7 @@ export const workItems = mysqlTable(
     category: varchar("category", { length: 80 }),
     subcategory: varchar("subcategory", { length: 100 }),
     description: text("description"),
+    requestAssetId: uuid("request_asset_id"),
     status: mysqlEnum("status", workItemStatuses).notNull().default("DRAFT"),
     currentVersionId: uuid("current_version_id"),
     firstPublishedAt: timestamp("first_published_at", { mode: "date", fsp: 3 }),
@@ -332,6 +333,7 @@ export const chatThreads = mysqlTable("chat_threads", {
   workspaceId: uuid("workspace_id").notNull().references(() => clientWorkspaces.id),
   kind: mysqlEnum("kind", ["COMPANY", "AI"]).notNull(),
   ownerKey: varchar("owner_key", { length: 36 }).notNull().default(""),
+  workItemId: uuid("work_item_id").references(() => workItems.id),
   ...timestamps,
 }, (table) => [uniqueIndex("chat_threads_scope_uq").on(table.agencyId, table.workspaceId, table.kind, table.ownerKey)]);
 

@@ -30,8 +30,8 @@ function RevisionSources({ message, isAdmin }: { message: ChatMessage; isAdmin: 
     return <a key={value.assetId} href={`/api/v1/${isAdmin ? "admin" : "company"}/assets/${encodeURIComponent(value.assetId)}`} target="_blank" rel="noopener noreferrer">Open version {value.versionNumber}</a>;
   })}</div>;
 }
-export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, isAdmin }: {
-  companies: Array<{ id: string; name: string }>; companyId: string; userId: string; isAdmin: boolean;
+export function ChatWorkspace({ companies, companyId: initialCompanyId, posters = [], posterId = "", userId, isAdmin }: {
+  companies: Array<{ id: string; name: string }>; companyId: string; posters?: Array<{ id: string; title: string }>; posterId?: string; userId: string; isAdmin: boolean;
 }) {
   const company = companies.find(({ id }) => id === initialCompanyId);
   return <main className="chat-shell">
@@ -41,18 +41,19 @@ export function ChatWorkspace({ companies, companyId: initialCompanyId, userId, 
       {isAdmin ? <label className="chat-company-select">Company<select aria-label="Chat company" value={initialCompanyId} onChange={(event) => { window.location.assign(`/messages?companyId=${encodeURIComponent(event.target.value)}`); }}>
         {companies.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}
       </select></label> : <p className="chat-company-name">{company?.name}</p>}
+      {posters.length ? <label className="chat-company-select">Poster<select aria-label="Poster conversation" value={posterId} onChange={(event) => { window.location.assign(`/messages?companyId=${encodeURIComponent(initialCompanyId)}&post=${encodeURIComponent(event.target.value)}`); }}>{posters.map((poster) => <option value={poster.id} key={poster.id}>{poster.title}</option>)}</select></label> : null}
       <nav className="chat-tabs" aria-label="Conversations">
-        <span className="active"><MessageSquareText size={22} /><span><strong>Company chat</strong><small>{isAdmin ? "Talk with your client" : "Talk with Rainhopes"}</small></span></span>
+        <span className="active"><MessageSquareText size={22} /><span><strong>Poster chat</strong><small>{posters.find((poster) => poster.id === posterId)?.title ?? "No poster selected"}</small></span></span>
       </nav>
       <div className="chat-privacy"><ShieldCheck size={20} /><p>This conversation is private to your company workspace. Use Check writing before sending when you want spelling and grammar help.</p></div>
     </aside>
-    {company ? <ChatRoom key={company.id} companyId={company.id} companyName={company.name} userId={userId} isAdmin={isAdmin} />
+    {company && (posterId || !posters.length) ? <ChatRoom key={`${company.id}:${posterId}`} companyId={company.id} companyName={company.name} posterId={posterId} posterTitle={posters.find((poster) => poster.id === posterId)?.title ?? "Company chat"} userId={userId} isAdmin={isAdmin} />
       : <section className="chat-empty"><MessageSquareText size={44} /><h1>No company yet</h1><p>Create a company to start chatting.</p><Link href="/admin">Go to admin</Link></section>}
   </main>;
 }
 
-function ChatRoom({ companyId, companyName, userId, isAdmin }: {
-  companyId: string; companyName: string; userId: string; isAdmin: boolean;
+function ChatRoom({ companyId, companyName, posterId, posterTitle, userId, isAdmin }: {
+  companyId: string; companyName: string; posterId: string; posterTitle: string; userId: string; isAdmin: boolean;
 }) {
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -116,7 +117,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin }: {
     async function start() {
       setLoading(true); setError("");
       try {
-        const result = await jsonResponse<{ thread: { id: string } }>(await fetch(`/api/v1/chat/threads?${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "COMPANY" }), signal: controller.signal }));
+        const result = await jsonResponse<{ thread: { id: string } }>(await fetch(`/api/v1/chat/threads?${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "COMPANY", posterId }), signal: controller.signal }));
         if (controller.signal.aborted) return;
         setThreadId(result.thread.id);
         await refresh(result.thread.id, true);
@@ -124,7 +125,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin }: {
     }
     void start();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [query, retry]);
+  }, [query, retry, posterId]);
 
   async function older() {
     if (!messages.length || loadingOlder) return;
@@ -202,7 +203,7 @@ function ChatRoom({ companyId, companyName, userId, isAdmin }: {
   }
 
   return <section className="chat-room" aria-label="Company chat">
-    <header className="chat-room-header"><span className="chat-room-avatar"><MessageSquareText size={25} /></span><div><h1>{companyName}</h1><p>{loading ? "Loading history…" : !connected ? "Reconnecting…" : "Company chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
+    <header className="chat-room-header"><span className="chat-room-avatar"><MessageSquareText size={25} /></span><div><h1>{posterTitle}</h1><p>{companyName} · {loading ? "Loading history…" : !connected ? "Reconnecting…" : "Poster chat · Refreshes automatically"}</p></div><ShieldCheck size={20} /></header>
     <div className="chat-timeline" ref={scroll} role="log" aria-label="Message history" aria-live="polite" aria-busy={loading}>
       {hasOlder ? <button type="button" className="chat-load-older" disabled={loadingOlder} onClick={() => void older()}>{loadingOlder ? "Loading…" : "Load older messages"}</button> : null}
       {loading ? <div className="chat-empty"><LoaderCircle className="chat-spinner" size={30} /><p>Loading saved messages…</p></div> : !messages.length ? <div className="chat-empty"><span><MessageSquareText size={38} /></span><h2>Start the conversation</h2><p>Keep messages, feedback, and files together. Everyone in this company conversation can read the saved history.</p><small>Text · Images · Video · Voice · PDFs · Documents</small></div> : null}
