@@ -180,14 +180,14 @@ export interface AdminPoster extends CategorizedWork {
   requestPreview?: string;
 }
 
-export async function createPosterRequest(input: { context: CompanyContext; projectId: string; title: string; prompt: string; asset?: { id: string; storageKey: string; originalName: string; mimeType: string; sizeBytes: number } }) {
+export async function createPosterRequest(input: { context: CompanyContext; projectId: string; title: string; description: string; category: string; subcategory: string; asset?: { id: string; storageKey: string; originalName: string; mimeType: string; sizeBytes: number } }) {
   return withAgency(input.context.agencyId, async (transaction) => {
     const [project] = await transaction.select({ id: divisions.id }).from(divisions).where(and(eq(divisions.id, input.projectId), eq(divisions.agencyId, input.context.agencyId))).limit(1);
     if (!project) throw new Error("PROJECT_NOT_FOUND");
     if (input.asset) await transaction.insert(assets).values({ ...input.asset, agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, declaredMimeType: input.asset.mimeType, detectedMimeType: input.asset.mimeType, status: "READY" });
     const id = randomUUID();
-    await transaction.insert(workItems).values({ id, agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, divisionId: project.id, title: input.title, description: input.prompt, requestAssetId: input.asset?.id ?? null, status: "DRAFT" });
-    await transaction.insert(auditEvents).values({ agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, actorType: "COMPANY", actorId: input.context.profileUserId, action: "POSTER_REQUESTED", resourceType: "WORK_ITEM", resourceId: id, metadata: { projectId: project.id, hasReference: Boolean(input.asset) } });
+    await transaction.insert(workItems).values({ id, agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, divisionId: project.id, title: input.title, description: input.description, category: input.category, subcategory: input.subcategory, requestAssetId: input.asset?.id ?? null, status: "DRAFT" });
+    await transaction.insert(auditEvents).values({ agencyId: input.context.agencyId, workspaceId: input.context.workspaceId, actorType: "COMPANY", actorId: input.context.profileUserId, action: "POSTER_REQUESTED", resourceType: "WORK_ITEM", resourceId: id, metadata: { projectId: project.id, category: input.category, subcategory: input.subcategory, hasReference: Boolean(input.asset) } });
     return { id, title: input.title };
   });
 }

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getRequestSession } from "@/auth/server";
 import { createPosterRequest, getCompanyContextForIdentity } from "@/data/companies";
 import { detectUploadType } from "@/domain/asset-upload";
+import { parseWorkClassification } from "@/domain/work-categories";
 import { deleteObject, putObject } from "@/storage/filesystem";
 
 export async function POST(request: Request) {
@@ -13,9 +14,14 @@ export async function POST(request: Request) {
     if (!context) return Response.json({ message: "Company access is required." }, { status: 403 });
     const form = await request.formData();
     const title = String(form.get("title") ?? "").trim();
-    const prompt = String(form.get("prompt") ?? "").trim();
+    const description = String(form.get("description") ?? "").trim();
     const projectId = String(form.get("projectId") ?? "").trim();
-    if (title.length < 2 || title.length > 220 || prompt.length < 3 || prompt.length > 12000 || !projectId) return Response.json({ message: "Choose a project and enter a title and design prompt." }, { status: 400 });
+    const classification = parseWorkClassification(
+      String(form.get("category") ?? "").trim(),
+      String(form.get("subcategory") ?? "").trim(),
+    );
+    if (title.length < 2 || title.length > 220 || description.length < 3 || description.length > 12000 || !projectId) return Response.json({ message: "Choose a project and enter a project title and description." }, { status: 400 });
+    if (!classification) return Response.json({ message: "Select a category and a subcategory belonging to that category." }, { status: 400 });
     const file = form.get("reference");
     let asset: { id: string; storageKey: string; originalName: string; mimeType: string; sizeBytes: number } | undefined;
     if (file instanceof File && file.size) {
@@ -28,12 +34,12 @@ export async function POST(request: Request) {
       await putObject({ key: storageKey, bytes, contentType: detected.mimeType });
       asset = { id, storageKey, originalName: file.name.slice(0, 255), mimeType: detected.mimeType, sizeBytes: bytes.byteLength };
     }
-    const poster = await createPosterRequest({ context, projectId, title, prompt, asset });
+    const poster = await createPosterRequest({ context, projectId, title, description, ...classification, asset });
     return Response.json({ poster }, { status: 201 });
   } catch (error) {
     if (storageKey) await deleteObject(storageKey).catch(() => undefined);
     if (error instanceof Error && error.message === "PROJECT_NOT_FOUND") return Response.json({ message: "Project not found." }, { status: 404 });
-    console.error("Poster request failed", error);
-    return Response.json({ message: "Poster request could not be sent." }, { status: 500 });
+    console.error("Project request failed", error);
+    return Response.json({ message: "Project request could not be sent." }, { status: 500 });
   }
 }

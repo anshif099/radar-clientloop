@@ -33,7 +33,7 @@ import { AssetPreview } from "./asset-preview";
 import { assetActionHref, type ContentType } from "@/domain/asset-types";
 import { CategoryFilters } from "./work-categories";
 import { WritingAssistant } from "./writing-assistant";
-import { allCategories, matchesCategoryFilter, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
+import { allCategories, matchesCategoryFilter, workCategories, workClassificationLabel, type CategorizedWork } from "@/domain/work-categories";
 
 export type Decision = "pending" | "approved" | "changes" | "rejected";
 type Filter = "all" | Decision;
@@ -365,6 +365,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
   const [toast, setToast] = useState<string | null>(null);
   const [requestOpen, setRequestOpen] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [requestCategory, setRequestCategory] = useState<string>(workCategories[0].id);
 
   const dateItems = useMemo(
     () => items.filter((item) => isInDateRange(item.publishedAt, dateRange)),
@@ -428,7 +429,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
       const response = await fetch("/api/v1/company/posters", { method: "POST", body: new FormData(event.currentTarget) });
       const result = await response.json() as { message?: string; poster?: { id: string } };
       if (!response.ok) throw new Error(result.message ?? "Request could not be sent.");
-      setRequestOpen(false); setToast("Poster request sent. The admin can now upload version 1.");
+      setRequestOpen(false); setToast("Project request sent. The admin can now upload version 1.");
       window.setTimeout(() => setToast(null), 4000);
     } catch (error) { setToast(error instanceof Error ? error.message : "Request could not be sent."); }
     finally { setRequesting(false); }
@@ -445,7 +446,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
           <DownloadsView items={projectItems} projects={initialProjects} projectFilter={projectFilter} dateRange={dateRange} onProjectFilter={setProjectFilter} onDateRange={setDateRange} categoryFilters={categoryFilters} />
         ) : (
           <div className="feed-container">
-            <section className="feed-intro"><div><p className="eyebrow">Welcome, {viewerName}</p><h1>{projectFilter === "all" ? "Your poster feed" : projectFilter}</h1><p>{counts.pending} {counts.pending === 1 ? "poster needs" : "posters need"} your attention.</p><button className="submit-feedback" type="button" onClick={() => setRequestOpen(true)}><ImagePlus size={18} />Request new poster</button></div><DateRangeSelect value={dateRange} onChange={setDateRange} /></section>
+            <section className="feed-intro"><div><p className="eyebrow">Welcome, {viewerName}</p><h1>{projectFilter === "all" ? "Your poster feed" : projectFilter}</h1><p>{counts.pending} {counts.pending === 1 ? "poster needs" : "posters need"} your attention.</p><button className="submit-feedback" type="button" onClick={() => setRequestOpen(true)}><ImagePlus size={18} />Request new project</button></div><DateRangeSelect value={dateRange} onChange={setDateRange} /></section>
             <section className="quick-stats portal-five-stats" aria-label="Workspace highlights">
               <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><span className="story-ring"><Sparkles size={21} /></span><strong>{counts.all}</strong><small>All</small></button>
               <button type="button" className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}><span className="story-ring"><Clock3 size={22} /></span><strong>{counts.pending}</strong><small>Pending</small></button>
@@ -467,7 +468,7 @@ export function ReviewApp({ initialItems, initialProjects, companyName, viewerNa
       <ActivitySummary items={view === "dashboard" ? categoryItems : projectItems} companyName={companyName} brand={brand} />
       <MobileNavigation view={view} onChange={changeView} />
       {feedback && feedbackItem ? <FeedbackSheet item={feedbackItem} decision={feedback.decision} busy={busyItem === feedback.itemId} onClose={() => setFeedback(null)} onSubmit={(note) => submitDecision(feedback.itemId, feedback.decision === "changes" ? "REQUEST_CHANGES" : "REJECT", note)} /> : null}
-      {requestOpen ? <div className="sheet-backdrop" role="presentation" onMouseDown={() => setRequestOpen(false)}><section className="feedback-sheet" role="dialog" aria-modal="true" aria-label="Request new poster" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-header"><div><p className="eyebrow">New creative</p><h2>Request a poster</h2></div><button className="icon-button" type="button" onClick={() => setRequestOpen(false)}><X size={21} /></button></div><form onSubmit={requestPoster}><label className="feedback-label">Project<select name="projectId" required defaultValue={initialProjects[0]?.id ?? ""}>{initialProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label><label className="feedback-label">Poster title<input name="title" minLength={2} maxLength={220} required placeholder="e.g. Weekend sale poster" /></label><label className="feedback-label">Design prompt<textarea name="prompt" minLength={3} maxLength={12000} rows={6} required placeholder="Describe the content, size, audience, style, copy, and deadline…" /></label><label className="feedback-label">Reference image <small>Optional · up to 20 MB</small><input name="reference" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label><button className="submit-feedback" type="submit" disabled={requesting || !initialProjects.length}><Send size={18} />{requesting ? "Sending…" : "Send poster request"}</button></form></section></div> : null}
+      {requestOpen ? <div className="sheet-backdrop" role="presentation" onMouseDown={() => setRequestOpen(false)}><section className="feedback-sheet" role="dialog" aria-modal="true" aria-label="Request new project" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-header"><div><p className="eyebrow">New project</p><h2>Request a new project</h2></div><button className="icon-button" type="button" onClick={() => setRequestOpen(false)}><X size={21} /></button></div><form onSubmit={requestPoster}><label className="feedback-label">Project<select name="projectId" required defaultValue={initialProjects[0]?.id ?? ""}>{initialProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label><label className="feedback-label">Project title<input name="title" minLength={2} maxLength={220} required placeholder="e.g. Weekend sale campaign" /></label><label className="feedback-label">Category<select name="category" required value={requestCategory} onChange={(event) => setRequestCategory(event.target.value)}>{workCategories.map((category) => <option value={category.id} key={category.id}>{category.label}</option>)}</select></label><label className="feedback-label">Subcategory<select name="subcategory" required defaultValue={workCategories[0].subcategories[0].id} key={requestCategory}>{workCategories.find((category) => category.id === requestCategory)?.subcategories.map((subcategory) => <option value={subcategory.id} key={subcategory.id}>{subcategory.label}</option>)}</select></label><label className="feedback-label">Description<textarea name="description" minLength={3} maxLength={12000} rows={6} required placeholder="Describe the content, size, audience, style, copy, and deadline…" /></label><label className="feedback-label">Reference image <small>Optional · up to 20 MB</small><input name="reference" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label><button className="submit-feedback" type="submit" disabled={requesting || !initialProjects.length}><Send size={18} />{requesting ? "Sending…" : "Send project request"}</button></form></section></div> : null}
       {toast ? <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div> : null}
     </div>
   );

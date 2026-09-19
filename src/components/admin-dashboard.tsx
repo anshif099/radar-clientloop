@@ -864,9 +864,10 @@ export function AdminDashboard({
                   <aside className="admin-poster-inspector">
                     {selectedPoster && !selectedVersion ? (
                       <>
-                        <header><div><p className="eyebrow">New poster request</p><h2>{selectedPoster.title}</h2></div></header>
+                        <header><div><p className="eyebrow">New project request</p><h2>{selectedPoster.title}</h2></div></header>
                         {selectedPoster.requestPreview ? <div className="admin-inspector-preview"><AssetPreview src={selectedPoster.requestPreview} title={`${selectedPoster.title} reference`} contentType="image" /></div> : null}
-                        <section className="admin-team-note"><small>Client prompt</small><p>{selectedPoster.requestPrompt || "No prompt supplied."}</p></section>
+                        <p className="work-classification">{workClassificationLabel(selectedPoster)}</p>
+                        <section className="admin-team-note"><small>Description</small><p>{selectedPoster.requestPrompt || "No description supplied."}</p></section>
                         <Link className="admin-download-link" href={`/messages?companyId=${selectedPoster.companyId}&post=${selectedPoster.id}`}><MessageSquareText size={16} />Open poster chat</Link>
                         <button className="admin-primary-button" type="button" onClick={() => setPanel({ type: "upload", posterId: selectedPoster.id })}><Upload size={18} />Upload poster v1</button>
                       </>
