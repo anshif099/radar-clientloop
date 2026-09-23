@@ -79,6 +79,10 @@ SUPER_ADMIN_NAME=ClientLoop Super Admin
 SUPER_ADMIN_PASSWORD=YOUR_INITIAL_PASSWORD_OF_AT_LEAST_12_CHARACTERS
 ```
 
+Set `BETTER_AUTH_URL` to the site origin only. Do not include `/login` or
+`/api/auth`: Better Auth serves sign-in at `/api/auth/sign-in/email`, and an
+extra path in its base URL can make that endpoint return `Route not found`.
+
 Generate `BETTER_AUTH_SECRET` in Terminal with:
 
 ```bash
@@ -93,7 +97,7 @@ At the top of the Node.js application page, copy and run the displayed virtual-e
 
 ```bash
 cd /home/CPANEL_USER/clientloop-app
-npm ci
+npm ci --include=dev
 npm run db:validate
 npm run db:migrate
 npm run auth:bootstrap
@@ -127,10 +131,11 @@ Return to **Setup Node.js App** and click **Restart**. Test:
 
 1. `https://app.example.com/api/v1/health`
 2. `https://app.example.com/login`
-3. Sign in as the Super Admin.
-4. Create a company and project.
-5. Upload a JPG/PNG/WebP/GIF poster.
-6. Sign in as the company account and confirm only that company's poster is visible.
+3. `https://app.example.com/api/auth/ok` (should return a Better Auth response, not a route-not-found error).
+4. Sign in as the Super Admin.
+5. Create a company and project.
+6. Upload a JPG/PNG/WebP/GIF poster.
+7. Sign in as the company account and confirm only that company's poster is visible.
 
 After the first successful login, remove `SUPER_ADMIN_PASSWORD` from the cPanel application variables and from `.env.production.local`, then restart the application. It is not required during normal runtime.
 
@@ -140,7 +145,7 @@ Upload the changed source files to the application root, activate the Node.js vi
 
 ```bash
 cd /home/CPANEL_USER/clientloop-app
-npm ci
+npm ci --include=dev
 npm run db:migrate
 npm run build
 ```
