@@ -19,6 +19,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:validate": "tsx scripts/validate-migration.ts",
     "auth:bootstrap": "tsx scripts/bootstrap-super-admin.ts",
+    "auth:reset-super-admin": "tsx scripts/reset-super-admin-password.ts",
     "pwa:assets": "tsx scripts/generate-pwa-assets.ts"
   },
   "dependencies": {
