@@ -139,7 +139,15 @@ Return to **Setup Node.js App** and click **Restart**. Test:
 
 After the first successful login, remove `SUPER_ADMIN_PASSWORD` from the cPanel application variables and from `.env.production.local`, then restart the application. It is not required during normal runtime.
 
-If the existing Super Admin password is lost, set `RESET_SUPER_ADMIN_PASSWORD` to a new 12-128 character password in the app's cPanel environment, activate a fresh Node.js terminal, and run `npm run auth:reset-super-admin` from the application root. This updates only the active account named by `SUPER_ADMIN_EMAIL` and revokes its sessions. Remove `RESET_SUPER_ADMIN_PASSWORD` from the environment after the command succeeds.
+If the existing Super Admin password is lost, activate the Node.js environment and run the following from the application root. Enter a new 12-128 character password at the prompt; it will not appear on screen or in shell history. This updates only the active account named by `SUPER_ADMIN_EMAIL` and revokes its sessions.
+
+```bash
+export SUPER_ADMIN_EMAIL=admin@clientloop.com
+read -r -s -p 'New Super Admin password: ' RESET_SUPER_ADMIN_PASSWORD; echo
+export RESET_SUPER_ADMIN_PASSWORD
+npm run auth:reset-super-admin
+unset RESET_SUPER_ADMIN_PASSWORD
+```
 
 ## Updating the application
 
